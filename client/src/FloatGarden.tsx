@@ -87,6 +87,7 @@ export function FloatGarden({ projects, onOpen, onChange }: { projects: Project[
     <button className="float-button" onClick={() => void open()} disabled={busy || companions.length === 0}>
       {busy ? "Opening…" : pip ? "Show Float ↗" : "Float ↗"}
     </button>
+    <button className="text-button" disabled={companions.length === 0} onClick={() => setInline(!inline)}>{inline ? "Hide companions here" : "Show companions here"}</button>
     <p>Keep selected projects beside your work.</p>
     {choosing && <div className="companion-picker">
       {available.length === 0 && <p>Plant a project to choose a companion.</p>}

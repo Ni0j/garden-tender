@@ -304,3 +304,4 @@ select { max-width: 100%; }
 @media (max-width: 600px) { .matrix { grid-template-columns: 1fr; } .garden-tools { flex-wrap: wrap; gap: 14px; } .todo-actions { gap: 2px; } }
 .matrix-drag { touch-action: none; cursor: grab; padding: 8px 12px 8px 0; }
 .storage-note { font-size: 12px; color: var(--dim); margin-top: 10px; }
+.matrix-project.is-dragging { opacity: .5; outline: 1px dashed var(--accent); }
