@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "types": ["bun"], "tsBuildInfoFile": "./.tsbuildinfo.server" },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

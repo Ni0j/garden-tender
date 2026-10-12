@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: project-garden
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: DATABASE_PATH
+        value: /var/data/garden.db
+      - key: NODE_ENV
+        value: production
+    disk:
+      name: garden-data
+      mountPath: /var/data
+      sizeGB: 1
