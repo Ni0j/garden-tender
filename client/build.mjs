@@ -10,7 +10,10 @@ const result = await Bun.build({
   outdir,
   target: "browser",
   minify: true,
-  define: { "process.env.NODE_ENV": JSON.stringify("production") },
+  define: {
+    "process.env.NODE_ENV": JSON.stringify("production"),
+    __GITHUB_PAGES__: JSON.stringify(process.env.GITHUB_PAGES === "true"),
+  },
   plugins: [{ name: "separate-css", setup(build) {
     build.onLoad({ filter: /\.css$/ }, () => ({ contents: "", loader: "js" }));
   } }],
@@ -21,4 +24,4 @@ const css = Bun.spawn([process.execPath, "./node_modules/@tailwindcss/cli/dist/i
 });
 if (await css.exited !== 0) throw new Error("CSS build failed");
 const html = await Bun.file(resolve(root, "client/index.html")).text();
-await Bun.write(resolve(outdir, "index.html"), html.replace("./src/main.tsx", "/main.js").replace("</head>", '  <link rel="stylesheet" href="/main.css" />\n  </head>'));
+await Bun.write(resolve(outdir, "index.html"), html.replace("./src/main.tsx", "./main.js").replace("</head>", '  <link rel="stylesheet" href="./main.css" />\n  </head>'));

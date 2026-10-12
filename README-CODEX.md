@@ -110,6 +110,12 @@ persistence. The named volume retains data when the container is removed;
 do not delete it if you want to keep the garden. No external deployment is
 performed by these local commands. Render deployment itself has not been verified.
 
+The repository also deploys a standalone build to **GitHub Pages** through
+`.github/workflows/pages.yml`. Because Pages cannot run the Bun/SQLite server,
+that build stores each visitor's garden in their browser's local storage. Its
+data stays on that device and browser profile. The Render deployment remains
+the option for server-backed persistence.
+
 ## Files to preserve
 
 Keep source, `bun.lock`, configuration, and `drizzle/` migrations. Dependencies,
