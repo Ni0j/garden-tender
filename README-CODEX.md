@@ -122,3 +122,22 @@ Keep source, `bun.lock`, configuration, and `drizzle/` migrations. Dependencies,
 build outputs, `.env`, and local databases are ignored. Back up live SQLite data
 using SQLite's backup API; copying only the `.db` while WAL writes are active can
 miss recent data. The original owner's private `app.db` was never included.
+
+## Active work and layouts
+
+Each project now has ordered TODOs, a recurring/one-time type, a Float selection,
+a saved work reminder, normalized garden coordinates, and an Eisenhower quadrant.
+Migration `0005_project_details.sql` adds a JSON details column to the existing
+project table; legacy next-step text becomes the first TODO when read. TODO
+completion records effort once per item, including if it is unchecked and checked
+again. Recurring projects grow with effort without a deadline or completion prompt.
+
+Float contains only explicitly selected companions. It uses Document
+Picture-in-Picture where available (desktop Chrome/Edge), with an in-page companion
+panel otherwise. Removing a companion never removes the project. Garden dragging
+supports pointer/touch and keyboard arrows. Matrix supports dragging, a touch drag
+handle, and a Move to selector. Each layout saves independently.
+
+The Pages demo implements these actions locally, without backend requests. Data
+persists in the current browser profile and does not sync across devices. The
+server build supports the same features through the existing isolated SQLite API.

@@ -267,3 +267,40 @@ button:disabled { opacity: .55; cursor: progress; }
 .floating-plant figcaption { position: absolute; left: 50%; bottom: 12px; z-index: 2; max-width: calc(100% - 12px); padding: 5px 8px; transform: translate(-50%, 5px); border-radius: 4px; background: var(--text); color: var(--surface); font-size: 11px; line-height: 1.2; text-align: center; opacity: 0; pointer-events: none; transition: opacity .15s ease, transform .15s ease; }
 .floating-plant:hover figcaption, .floating-plant:focus-visible figcaption { opacity: 1; transform: translate(-50%, 0); }
 .floating-plant:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.project-work { margin: 24px 0; }
+.work-settings { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px; }
+.todo-list { list-style: none; padding: 0; }
+.todo-list li { display: flex; align-items: center; gap: 8px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+.todo-list li > span { flex: 1; overflow-wrap: anywhere; }
+.todo-list input[type="checkbox"], .companion-picker input { width: 18px; height: 18px; accent-color: var(--moss); }
+.todo-actions { display: flex; gap: 8px; font-size: 12px; }
+.todo-actions button { min-width: 28px; min-height: 32px; }
+.todo-done { text-decoration: line-through; opacity: .55; }
+.context-form { margin-top: 20px; }
+.context-form label, .context-form textarea { display: block; width: 100%; }
+.context-form textarea { margin: 8px 0; padding: 10px; border: 1px solid var(--border); background: transparent; }
+.type-filter { display: flex; align-items: center; gap: 12px; margin: 18px 0; font-size: 13px; }
+select { max-width: 100%; }
+.companion-picker { display: grid; gap: 10px; margin: 15px 0; text-align: left; }
+.companion-picker label { display: flex; align-items: center; gap: 8px; }
+.float-control > button + button { margin-left: 12px; }
+.floating-plant p, .floating-plant small { display: block; max-width: 240px; overflow-wrap: anywhere; margin: 8px auto; }
+.inline-float { position: fixed; bottom: 16px; right: 16px; width: min(360px, calc(100vw - 32px)); max-height: 70vh; overflow: auto; background: var(--surface); border: 1px solid var(--border); z-index: 20; padding: 12px; }
+.free-garden { position: relative; margin-top: 18px; }
+.free-plant { position: absolute; width: 130px; height: 200px; padding: 0; touch-action: none; cursor: grab; user-select: none; text-align: center; }
+.free-plant:active { cursor: grabbing; z-index: 2; }
+.free-plant .plant-wrap { width: 120px; height: 145px; margin: auto; }
+.free-plant strong, .free-plant small { display: block; overflow-wrap: anywhere; }
+.free-plant strong { font-size: 13px; }
+.free-plant small { font-size: 10px; margin-top: 4px; opacity: .65; }
+.matrix { display: grid; grid-template-columns: 1fr 1fr; margin-top: 20px; }
+.quadrant { min-height: 230px; padding: 20px; border: 1px solid var(--border); }
+.quadrant h2 { font-size: 16px; }
+.quadrant > p { font-size: 12px; opacity: .65; }
+.matrix-project { padding: 16px 0; cursor: grab; }
+.matrix-project small { display: block; margin: 5px 0; }
+.matrix-project select { width: 100%; font-size: 12px; padding: 7px; }
+@media (max-width: 600px) { .matrix { grid-template-columns: 1fr; } .garden-tools { flex-wrap: wrap; gap: 14px; } .todo-actions { gap: 2px; } }
+.matrix-drag { touch-action: none; cursor: grab; padding: 8px 12px 8px 0; }
+.storage-note { font-size: 12px; color: var(--dim); margin-top: 10px; }

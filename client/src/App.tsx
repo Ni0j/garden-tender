@@ -1,3 +1,5 @@
+import { FreeGarden, Matrix } from "./GardenViews";
+import { ProjectWork } from "./ProjectWork";
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
@@ -28,47 +30,14 @@ function nextMilestone(count: number): string {
 }
 
 
-function GardenCard({ project, onOpen, animate }: { project: Project; onOpen: () => void; animate: boolean }) {
-  const [fruitLabel, setFruitLabel] = useState<string | null>(null);
-  return (
-    <article className={`garden-card status-${project.status}`}>
-      <button className="plant-button" onClick={onOpen} aria-label={`Open ${project.name}`}>
-        <Plant project={project} animate={animate} />
-      </button>
-      <div className="project-caption">
-        <div>
-          <h2>{project.name}</h2>
-          <p>{project.growthStage} · {project.efforts.length} effort{project.efforts.length === 1 ? "" : "s"}</p>
-        </div>
-        {project.outcomes.length > 0 && (
-          <button
-            className="fruit-count"
-            onClick={() => {
-              const outcome = project.outcomes[0];
-              setFruitLabel(outcome ? `${outcome.type}: ${outcome.value}${project.outcomes.length > 1 ? ` +${project.outcomes.length - 1}` : ""}` : null);
-            }}
-            aria-label={`Show outcomes for ${project.name}`}
-          >
-            <span className="fruit-dot" /> {project.outcomes.length}
-          </button>
-        )}
-      </div>
-      {fruitLabel && (
-        <button className="fruit-note" onClick={() => setFruitLabel(null)} aria-label="Hide outcome">
-          {fruitLabel}
-        </button>
-      )}
-    </article>
-  );
-}
-
 function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [projectType, setProjectType] = useState<"one-time" | "recurring">("one-time");
   const create = useMutation({
-    mutationFn: () => api.createProject({ name, description, nextStep: nextStep.trim() || null, deadline: deadline || null }),
+    mutationFn: () => api.createProject({ name, description, projectType, nextStep: nextStep.trim() || null, deadline: deadline || null }),
     onSuccess: (result) => onCreated(result.id),
   });
   function submit(event: FormEvent) {
@@ -98,10 +67,11 @@ function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCre
             Next step <span>optional</span>
             <input value={nextStep} onChange={(event) => setNextStep(event.target.value)} maxLength={240} placeholder="The next concrete thing to do" />
           </label>
-          <label>
+          <label>Project type<select value={projectType} onChange={e => setProjectType(e.target.value as "one-time" | "recurring")}><option value="one-time">One-time</option><option value="recurring">Recurring</option></select></label>
+          {projectType === "one-time" && <label>
             Deadline <span>optional</span>
             <input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
-          </label>
+          </label>}
           {create.error && <p className="form-error">Could not plant this seed. Try again.</p>}
           <button className="primary-button" type="submit" disabled={create.isPending}>{create.isPending ? "Planting…" : "Plant seed"}</button>
         </form>
@@ -117,7 +87,6 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
   const [outcomeNote, setOutcomeNote] = useState("");
   const [showOutcome, setShowOutcome] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [nextStepText, setNextStepText] = useState("");
 
   const effort = useMutation({
     mutationFn: () => api.addEffort({ projectId: project.id, text: effortText }),
@@ -141,23 +110,6 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
       setOutcomeNote("");
       setShowOutcome(false);
       setMessage("Outcome added. The plant is bearing fruit.");
-      onChanged();
-    },
-  });
-  const setNextStep = useMutation({
-    mutationFn: () => api.setNextStep({ projectId: project.id, text: nextStepText }),
-    onMutate: () => setMessage(null),
-    onError: () => setMessage("Could not save the next step. Try again."),
-    onSuccess: () => { setNextStepText(""); setMessage("Next step saved."); onChanged(); },
-  });
-  const completeNextStep = useMutation({
-    mutationFn: () => api.completeNextStep({ projectId: project.id }),
-    onMutate: () => setMessage(null),
-    onError: () => setMessage("Could not complete the next step. Try again."),
-    onSuccess: () => {
-      setMessage("Next step completed. The plant grew.");
-      setAnimating(true);
-      window.setTimeout(() => setAnimating(false), 900);
       onChanged();
     },
   });
@@ -207,22 +159,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
 
           {message && <p className="notice" role="status">{message}</p>}
 
-          {!readOnly && project.status === "active" && (
-            <section className="next-step" aria-labelledby="next-step-title">
-              <h3 id="next-step-title">Next step</h3>
-              {project.nextStep ? (
-                <label className="next-step-check">
-                  <input type="checkbox" checked={false} onChange={() => completeNextStep.mutate()} disabled={completeNextStep.isPending} />
-                  <span>{project.nextStep}</span>
-                </label>
-              ) : (
-                <form className="inline-entry" onSubmit={(event) => { event.preventDefault(); setNextStep.mutate(); }}>
-                  <input value={nextStepText} onChange={(event) => setNextStepText(event.target.value)} placeholder="Add the next concrete step" maxLength={240} required />
-                  <button type="submit" disabled={setNextStep.isPending}>{setNextStep.isPending ? "Saving…" : "Set next step"}</button>
-                </form>
-              )}
-            </section>
-          )}
+          <ProjectWork key={project.id} project={project} onChanged={onChanged} />
 
           {!readOnly && (
             <form className="effort-form" onSubmit={(event) => { event.preventDefault(); effort.mutate(); }}>
@@ -275,7 +212,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
 
           {!readOnly && (
             <div className="project-actions">
-              {project.status === "active" && <button className="complete-button" onClick={() => complete.mutate()} disabled={complete.isPending}>Mark complete</button>}
+              {project.status === "active" && project.details.projectType === "one-time" && <button className="complete-button" onClick={() => complete.mutate()} disabled={complete.isPending}>Mark complete</button>}
               <button className="archive-button" onClick={() => archive.mutate()} disabled={archive.isPending}>Archive project</button>
             </div>
           )}
@@ -288,27 +225,30 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
 export function App() {
   const queryClient = useQueryClient();
   const [view, setView] = useState<ViewMode>(() => {
-    try { return localStorage.getItem("project-garden.view") === "minimal" ? "minimal" : "plant"; }
+    try { const saved = localStorage.getItem("project-garden.view"); return saved === "minimal" || saved === "matrix" ? saved : "plant"; }
     catch { return "plant"; }
   });
   const changeView = (next: ViewMode) => {
     setView(next);
     try { localStorage.setItem("project-garden.view", next); } catch { /* Keep the current session usable. */ }
   };
+  const [typeFilter, setTypeFilter] = useState("all");
   const [filter, setFilter] = useState<Filter>("active");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
-  const [animatingId, setAnimatingId] = useState<number | null>(null);
+  const [, setAnimatingId] = useState<number | null>(null);
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => api.listProjects({}) });
   const projects = projectsQuery.data?.projects ?? [];
   const selected = projects.find((project) => project.id === selectedId) ?? null;
-  const visibleProjects = useMemo(() => projects.filter((project) => project.status === filter), [projects, filter]);
+  const visibleProjects = useMemo(() => projects.filter((project) => project.status === filter && (typeFilter === "all" || project.details.projectType === typeFilter)), [projects, filter, typeFilter]);
   const counts = useMemo(() => ({
     active: projects.filter((project) => project.status === "active").length,
     completed: projects.filter((project) => project.status === "completed").length,
     archived: projects.filter((project) => project.status === "archived").length,
   }), [projects]);
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["projects"] }); };
+
+  const update = useMutation({ mutationFn: api.updateProject, onSuccess: refresh });
 
   return (
     <div className="app-shell">
@@ -317,16 +257,19 @@ export function App() {
           <div>
             <p className="overline">Tended by effort</p>
             <h1>Your garden</h1>
-            <p className="intro-copy">Nothing grows on its own. Log the work that moved a project forward.</p>
+            <p className="intro-copy">Keep your place. Tend your projects, one small effort at a time.</p>
+            {__GITHUB_PAGES__ && <p className="storage-note">Your garden is saved in this browser on this device.</p>}
           </div>
           <button className="add-project" onClick={() => setCreating(true)}><span>＋</span> Plant project</button>
         </header>
 
         <div className="garden-tools">
           <ViewChoice view={view} onChange={changeView} />
-          <FloatGarden projects={projects} />
+          <FloatGarden projects={projects} onOpen={setSelectedId} onChange={(id, inFloat) => update.mutate({ projectId: id, change: { kind: "settings", inFloat } })} />
         </div>
 
+        {update.error && <p role="alert" className="form-error">Could not save this change. Please try again.</p>}
+        <label className="type-filter">Project type <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All types</option><option value="recurring">Recurring</option><option value="one-time">One-time</option></select></label>
         <nav className="filter-row" aria-label="Project status filters">
           {FILTERS.map((item) => (
             <button key={item.value} className={filter === item.value ? "active" : ""} onClick={() => setFilter(item.value)}>
@@ -356,15 +299,10 @@ export function App() {
               </button>
             ))}
           </section>
+        ) : view === "matrix" ? (
+          <Matrix projects={visibleProjects} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />
         ) : (
-          <section className="garden-bed" aria-label={`${FILTERS.find((item) => item.value === filter)?.label ?? "Project"} projects`}>
-            <div className="garden-rule" />
-            <div className="plant-grid">
-              {visibleProjects.map((project) => (
-                <GardenCard key={project.id} project={project} onOpen={() => setSelectedId(project.id)} animate={animatingId === project.id} />
-              ))}
-            </div>
-          </section>
+          <FreeGarden projects={visibleProjects} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />
         )}
       </main>
 

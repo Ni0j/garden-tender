@@ -1,3 +1,4 @@
+import { detailsShape, initialDetails, changeShape, changeDetails } from "../../shared/project";
 import { z } from "zod";
 import type { GardenDatabase } from "./db";
 
@@ -24,6 +25,7 @@ const projectShape = z.object({
   name: z.string(),
   description: z.string(),
   nextStep: z.string().nullable(),
+  details: detailsShape,
   deadline: z.string().nullable(),
   status: projectStatus,
   plantVariant: z.number(),
@@ -45,11 +47,13 @@ function growthStage(effortCount: number, completed: boolean): "Seed" | "Sprout"
 }
 
 export const contracts = {
+  updateProject: { request: z.object({ projectId: z.number().int().positive(), change: changeShape }), response: okResponse },
   listProjects: { request: z.object({}), response: z.object({ projects: z.array(projectShape) }) },
   createProject: { request: z.object({
       name: z.string().trim().min(1).max(80),
       description: z.string().trim().min(1).max(300),
       nextStep: z.string().trim().max(240).nullable().optional(),
+      projectType: z.enum(["one-time", "recurring"]).optional(),
       deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
     }), response: z.object({ id: z.number() }) },
   setNextStep: { request: z.object({ projectId: z.number().int().positive(), text: z.string().trim().min(1).max(240) }), response: okResponse },
@@ -67,6 +71,18 @@ export const contracts = {
 };
 
 export const Actions = {
+  updateProject(ctx: Context, args: z.infer<typeof contracts.updateProject.request>) {
+    const { db, userId } = ctx;
+    const where = and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId));
+    const project = db.select().from(schema.projects).where(where).get();
+    if (!project) throw new Error("Project not found.");
+    if (project.status === "archived" && args.change.kind !== "settings") throw new Error("Archived projects are dormant.");
+    const details = project.details ?? initialDetails(project.nextStep);
+    const effort = changeDetails(details, args.change);
+    if (effort) db.insert(schema.efforts).values({ userId, projectId: project.id, text: effort }).run();
+    db.update(schema.projects).set({ details, nextStep: null, ...(details.projectType === "recurring" ? { deadline: null } : {}) }).where(where).run();
+    return { ok: true as const };
+  },
   listProjects(ctx: Context) {
       const { db, userId } = ctx;
       const [projectRows, effortRows, outcomeRows] = [
@@ -97,6 +113,7 @@ export const Actions = {
             name: project.name,
             description: project.description,
             nextStep: project.nextStep,
+            details: project.details ?? initialDetails(project.nextStep),
             deadline: project.deadline,
             status: project.status,
             plantVariant: project.plantVariant,
@@ -118,7 +135,8 @@ export const Actions = {
         name: args.name,
         description: args.description,
         nextStep: args.nextStep ?? null,
-        deadline: args.deadline,
+        deadline: args.projectType === "recurring" ? null : args.deadline,
+        details: { ...initialDetails(args.nextStep), projectType: args.projectType ?? "one-time" },
         plantVariant: nextVariant,
       }).returning({ id: schema.projects.id }).all();
       const inserted = rows[0];

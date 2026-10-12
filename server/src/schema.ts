@@ -6,6 +6,7 @@ export const projects = sqliteTable("projects", {
   name: text("name").notNull(),
   description: text("description").notNull(),
   nextStep: text("next_step"),
+  details: text("details", { mode: "json" }).$type<import("../../shared/project").Details>(),
   deadline: text("deadline"),
   status: text("status", { enum: ["active", "completed", "archived"] })
     .notNull()

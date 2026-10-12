@@ -166,3 +166,32 @@ test("migration preserves legacy rows without exposing them to new visitors", as
     }
   } finally { migrated.sqlite.close(); }
 });
+
+test("TODOs credit once, reorder and persist alongside independent project settings", async () => {
+  const id = await create(alice);
+  const update = (change: unknown, user = alice) => request("updateProject", user, { projectId: id, change });
+  expect((await update({ kind: "addTodo", text: "First" }, bob)).status).toBe(404);
+  await update({ kind: "addTodo", text: "First" });
+  await update({ kind: "addTodo", text: "Second" });
+  const todos = (await list(alice))[0].details.todos;
+  await update({ kind: "editTodo", id: todos[1].id, text: "Edited" });
+  await update({ kind: "moveTodo", id: todos[1].id, direction: "up" });
+  await update({ kind: "toggleTodo", id: todos[0].id, done: true });
+  await update({ kind: "toggleTodo", id: todos[0].id, done: false });
+  await update({ kind: "toggleTodo", id: todos[0].id, done: true });
+  await update({ kind: "settings", projectType: "recurring", position: { x: .2, y: .6 }, quadrant: "do", inFloat: true, context: "Tests running in Codex" });
+  database.sqlite.close();
+  database = openDatabase(join(directory, "garden.db"));
+  handle = apiHandler(database.db);
+  const [project] = await list(alice);
+  expect(project.efforts).toHaveLength(1);
+  expect(project.growthStage).toBe("Sprout");
+  expect(project.details.todos.map((todo: {text:string}) => todo.text)).toEqual(["Edited", "First"]);
+  expect(project.details.position).toEqual({ x: .2, y: .6 });
+  expect(project.details.quadrant).toBe("do");
+  expect(project.details.projectType).toBe("recurring");
+  expect(project.status).toBe("active");
+  await update({ kind: "settings", inFloat: false });
+  expect((await list(alice))[0].details.todos).toHaveLength(2);
+  expect((await update({ kind: "settings", position: { x: 2, y: 0 } })).status).toBe(400);
+});

@@ -2,17 +2,20 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Plant, type Project } from "./Plant";
 
-export type ViewMode = "plant" | "minimal";
+export type ViewMode = "plant" | "minimal" | "matrix";
 type PictureInPicture = { requestWindow: (options: { width: number; height: number }) => Promise<Window> };
 
 export function ViewChoice({ view, onChange }: { view: ViewMode; onChange: (view: ViewMode) => void }) {
   return <div className="view-choice" role="group" aria-label="Garden view">
-    <button aria-pressed={view === "plant"} onClick={() => onChange("plant")}>Plant</button>
+    <button aria-pressed={view === "plant"} onClick={() => onChange("plant")}>Garden</button>
+    <button aria-pressed={view === "matrix"} onClick={() => onChange("matrix")}>Matrix</button>
     <button aria-pressed={view === "minimal"} onClick={() => onChange("minimal")}>Minimal</button>
   </div>;
 }
 
-export function FloatGarden({ projects }: { projects: Project[] }) {
+export function FloatGarden({ projects, onOpen, onChange }: { projects: Project[]; onOpen: (id: number) => void; onChange: (id: number, selected: boolean) => void }) {
+  const [choosing, setChoosing] = useState(false);
+  const [inline, setInline] = useState(false);
   const [pip, setPip] = useState<Window | null>(null);
   const currentWindow = useRef<Window | null>(null);
   const opening = useRef(false);
@@ -20,6 +23,7 @@ export function FloatGarden({ projects }: { projects: Project[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const available = projects.filter((project) => project.status !== "archived");
+  const companions = available.filter(project => project.details.inFloat);
   const apiPip = (window as Window & { documentPictureInPicture?: PictureInPicture }).documentPictureInPicture;
 
   useEffect(() => {
@@ -29,7 +33,8 @@ export function FloatGarden({ projects }: { projects: Project[] }) {
 
   async function open() {
     if (!apiPip) {
-      setError("Float is not available in this browser. Try desktop Chrome or Edge; your garden works here as usual.");
+      setInline(true);
+      setError("Companions are shown here. For an always-on-top window, use desktop Chrome or Edge.");
       return;
     }
     if (currentWindow.current && !currentWindow.current.closed) { currentWindow.current.focus(); return; }
@@ -67,21 +72,28 @@ export function FloatGarden({ projects }: { projects: Project[] }) {
     }
   }
 
+  const content = <section className="floating-garden" aria-label="Active companions">
+    {companions.length === 0 && <p>Choose a companion from your garden to keep it beside your work.</p>}
+    {companions.map(project => <figure className="floating-plant" key={project.id}>
+      <button className="plant-button" onClick={() => { onOpen(project.id); window.focus(); }} aria-label={`Return to ${project.name}`}><Plant project={project} /></button>
+      <figcaption><button className="text-button" onClick={() => { onOpen(project.id); window.focus(); }}>{project.name} ↗</button></figcaption>
+      <p>{project.details.context || "Add a reminder of where you left off."}</p>
+      <small>Next: {project.details.todos.find(todo => !todo.done)?.text || "Choose your next step"}</small>
+      <button className="text-button" onClick={() => onChange(project.id, false)}>Remove companion</button>
+    </figure>)}
+  </section>;
   return <div className="float-control">
-    <button className="float-button" onClick={() => void open()} disabled={busy || available.length === 0} aria-describedby="float-hint">
-      {busy ? "Opening…" : pip ? "Show floating garden ↗" : "Float garden ↗"}
+    <button className="float-button" onClick={() => setChoosing(!choosing)}>Choose companions ({companions.length})</button>
+    <button className="float-button" onClick={() => void open()} disabled={busy || companions.length === 0}>
+      {busy ? "Opening…" : pip ? "Show Float ↗" : "Float ↗"}
     </button>
-    <p id="float-hint">{available.length === 0 ? "Plant a project to float it." : pip ? "Keep this tab open while your garden floats." : "Keep a plant beside your work."}</p>
-    {error && <p className="float-error" role="alert">{error}</p>}
-    {pip && createPortal(
-      <section className="floating-garden" aria-label="Floating garden">
-        {available.map((project) => (
-          <figure className="floating-plant" key={project.id} tabIndex={0} aria-label={`${project.name}: ${project.growthStage}`}>
-            <Plant project={project} />
-            <figcaption>{project.name}</figcaption>
-          </figure>
-        ))}
-      </section>, pip.document.body,
-    )}
+    <p>Keep selected projects beside your work.</p>
+    {choosing && <div className="companion-picker">
+      {available.length === 0 && <p>Plant a project to choose a companion.</p>}
+      {available.map(project => <label key={project.id}><input type="checkbox" checked={project.details.inFloat} onChange={e => onChange(project.id, e.target.checked)} />{project.name}</label>)}
+    </div>}
+    {error && <p className="float-error" role="status">{error}</p>}
+    {pip && createPortal(content, pip.document.body)}
+    {inline && <aside className="inline-float"><button className="text-button" onClick={() => setInline(false)}>Close Float</button>{content}</aside>}
   </div>;
 }
