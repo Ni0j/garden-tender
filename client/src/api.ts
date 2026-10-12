@@ -38,7 +38,11 @@ async function post<K extends ActionName>(name: K, args: RequestArgs<K>): Promis
 function readGarden(): StoredGarden {
   try {
     const saved = localStorage.getItem(gardenStorageKey);
-    if (saved) return JSON.parse(saved) as StoredGarden;
+    if (saved) {
+      const garden = JSON.parse(saved) as StoredGarden;
+      garden.projects.forEach((project) => { project.nextStep ??= null; });
+      return garden;
+    }
   } catch { /* Start with an empty garden if local storage is unavailable or damaged. */ }
   return { projects: [], nextId: 1 };
 }
@@ -63,7 +67,7 @@ async function localPost<K extends ActionName>(name: K, args: RequestArgs<K>): P
     const input = args as RequestArgs<"createProject">;
     const id = garden.nextId++;
     garden.projects.unshift({
-      id, name: input.name.trim(), description: input.description.trim(), deadline: input.deadline,
+      id, name: input.name.trim(), description: input.description.trim(), nextStep: input.nextStep?.trim() || null, deadline: input.deadline,
       status: "active", plantVariant: id % 6, createdAt: new Date().toISOString(), completedAt: null,
       growthStage: "Seed", efforts: [], outcomes: [],
     });
@@ -75,12 +79,19 @@ async function localPost<K extends ActionName>(name: K, args: RequestArgs<K>): P
   const input = args as { projectId: number };
   const project = garden.projects.find((item) => item.id === input.projectId);
   if (!project) throw new Error("Project not found.");
-  if (project.status === "archived" && (name === "addEffort" || name === "addOutcome")) {
+  if (project.status === "archived" && (name === "addEffort" || name === "addOutcome" || name === "setNextStep" || name === "completeNextStep")) {
     throw new Error("Archived projects are dormant.");
   }
   if (name === "addEffort") {
     const effort = args as RequestArgs<"addEffort">;
     project.efforts.push({ id: garden.nextId++, text: effort.text.trim(), createdAt: new Date().toISOString() });
+    project.growthStage = growthStage(project.efforts.length, project.status === "completed");
+  } else if (name === "setNextStep") {
+    project.nextStep = (args as RequestArgs<"setNextStep">).text.trim();
+  } else if (name === "completeNextStep") {
+    if (!project.nextStep) throw new Error("No next step to complete.");
+    project.efforts.push({ id: garden.nextId++, text: project.nextStep, createdAt: new Date().toISOString() });
+    project.nextStep = null;
     project.growthStage = growthStage(project.efforts.length, project.status === "completed");
   } else if (name === "addOutcome") {
     const outcome = args as RequestArgs<"addOutcome">;
@@ -100,6 +111,8 @@ export const api = {
   listProjects: (args: RequestArgs<"listProjects">) => post("listProjects", args),
   createProject: (args: RequestArgs<"createProject">) => post("createProject", args),
   addEffort: (args: RequestArgs<"addEffort">) => post("addEffort", args),
+  setNextStep: (args: RequestArgs<"setNextStep">) => post("setNextStep", args),
+  completeNextStep: (args: RequestArgs<"completeNextStep">) => post("completeNextStep", args),
   addOutcome: (args: RequestArgs<"addOutcome">) => post("addOutcome", args),
   completeProject: (args: RequestArgs<"completeProject">) => post("completeProject", args),
   archiveProject: (args: RequestArgs<"archiveProject">) => post("archiveProject", args),

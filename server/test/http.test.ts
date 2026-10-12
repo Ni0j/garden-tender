@@ -59,11 +59,24 @@ describe("anonymous HTTP isolation", () => {
     expect((await list(bob)).map((p: { id: number }) => p.id)).toEqual([bobId]);
   });
 
+  test("completing a next step records effort and advances growth", async () => {
+    const id = await create(alice);
+    expect((await request("setNextStep", alice, { projectId: id, text: "Draft the first page" })).status).toBe(200);
+    expect((await list(alice))[0].nextStep).toBe("Draft the first page");
+    expect((await request("completeNextStep", alice, { projectId: id })).status).toBe(200);
+    const [project] = await list(alice);
+    expect(project.nextStep).toBeNull();
+    expect(project.efforts[0].text).toBe("Draft the first page");
+    expect(project.growthStage).toBe("Sprout");
+  });
+
   test("all project mutations deny guessed foreign IDs without changing either garden", async () => {
     const id = await create(alice);
     for (const [action, args] of [
       ["addEffort", { projectId: id, text: "Intruder" }],
       ["addOutcome", { projectId: id, type: "Other", value: "Intruder", note: null }],
+      ["setNextStep", { projectId: id, text: "Intruder" }],
+      ["completeNextStep", { projectId: id }],
       ["completeProject", { projectId: id }],
       ["archiveProject", { projectId: id }],
     ] as const) {

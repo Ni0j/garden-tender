@@ -23,6 +23,7 @@ const projectShape = z.object({
   id: z.number(),
   name: z.string(),
   description: z.string(),
+  nextStep: z.string().nullable(),
   deadline: z.string().nullable(),
   status: projectStatus,
   plantVariant: z.number(),
@@ -48,8 +49,11 @@ export const contracts = {
   createProject: { request: z.object({
       name: z.string().trim().min(1).max(80),
       description: z.string().trim().min(1).max(300),
+      nextStep: z.string().trim().max(240).nullable().optional(),
       deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
     }), response: z.object({ id: z.number() }) },
+  setNextStep: { request: z.object({ projectId: z.number().int().positive(), text: z.string().trim().min(1).max(240) }), response: okResponse },
+  completeNextStep: { request: z.object({ projectId: z.number().int().positive() }), response: okResponse },
   addEffort: { request: z.object({ projectId: z.number().int().positive(), text: z.string().trim().min(1).max(240) }), response: okResponse },
   addOutcome: { request: z.object({
       projectId: z.number().int().positive(),
@@ -92,6 +96,7 @@ export const Actions = {
             id: project.id,
             name: project.name,
             description: project.description,
+            nextStep: project.nextStep,
             deadline: project.deadline,
             status: project.status,
             plantVariant: project.plantVariant,
@@ -112,6 +117,7 @@ export const Actions = {
       const rows = db.insert(schema.projects).values({ userId,
         name: args.name,
         description: args.description,
+        nextStep: args.nextStep ?? null,
         deadline: args.deadline,
         plantVariant: nextVariant,
       }).returning({ id: schema.projects.id }).all();
@@ -126,6 +132,23 @@ export const Actions = {
       if (!project[0]) throw new Error("Project not found.");
       if (project[0].status === "archived") throw new Error("Archived projects are dormant.");
       db.insert(schema.efforts).values({ userId, projectId: args.projectId, text: args.text }).run();
+      return { ok: true as const };
+  },
+
+  setNextStep(ctx: Context, args: z.infer<typeof contracts.setNextStep.request>) {
+      const { db, userId } = ctx;
+      const changed = db.update(schema.projects).set({ nextStep: args.text }).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId), eq(schema.projects.status, "active"))).returning({ id: schema.projects.id }).all();
+      if (!changed[0]) throw new Error("Project not found.");
+      return { ok: true as const };
+  },
+
+  completeNextStep(ctx: Context, args: z.infer<typeof contracts.completeNextStep.request>) {
+      const { db, userId } = ctx;
+      const rows = db.select({ id: schema.projects.id, nextStep: schema.projects.nextStep }).from(schema.projects).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId), eq(schema.projects.status, "active"))).limit(1).all();
+      const project = rows[0];
+      if (!project?.nextStep) throw new Error("Project not found.");
+      db.insert(schema.efforts).values({ userId, projectId: project.id, text: project.nextStep }).run();
+      db.update(schema.projects).set({ nextStep: null }).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, project.id))).run();
       return { ok: true as const };
   },
 

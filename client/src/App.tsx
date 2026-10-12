@@ -65,9 +65,10 @@ function GardenCard({ project, onOpen, animate }: { project: Project; onOpen: ()
 function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [nextStep, setNextStep] = useState("");
   const [deadline, setDeadline] = useState("");
   const create = useMutation({
-    mutationFn: () => api.createProject({ name, description, deadline: deadline || null }),
+    mutationFn: () => api.createProject({ name, description, nextStep: nextStep.trim() || null, deadline: deadline || null }),
     onSuccess: (result) => onCreated(result.id),
   });
   function submit(event: FormEvent) {
@@ -94,6 +95,10 @@ function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCre
             <textarea value={description} onChange={(event) => setDescription(event.target.value)} maxLength={300} rows={3} required />
           </label>
           <label>
+            Next step <span>optional</span>
+            <input value={nextStep} onChange={(event) => setNextStep(event.target.value)} maxLength={240} placeholder="The next concrete thing to do" />
+          </label>
+          <label>
             Deadline <span>optional</span>
             <input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
           </label>
@@ -112,6 +117,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
   const [outcomeNote, setOutcomeNote] = useState("");
   const [showOutcome, setShowOutcome] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [nextStepText, setNextStepText] = useState("");
 
   const effort = useMutation({
     mutationFn: () => api.addEffort({ projectId: project.id, text: effortText }),
@@ -135,6 +141,23 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
       setOutcomeNote("");
       setShowOutcome(false);
       setMessage("Outcome added. The plant is bearing fruit.");
+      onChanged();
+    },
+  });
+  const setNextStep = useMutation({
+    mutationFn: () => api.setNextStep({ projectId: project.id, text: nextStepText }),
+    onMutate: () => setMessage(null),
+    onError: () => setMessage("Could not save the next step. Try again."),
+    onSuccess: () => { setNextStepText(""); setMessage("Next step saved."); onChanged(); },
+  });
+  const completeNextStep = useMutation({
+    mutationFn: () => api.completeNextStep({ projectId: project.id }),
+    onMutate: () => setMessage(null),
+    onError: () => setMessage("Could not complete the next step. Try again."),
+    onSuccess: () => {
+      setMessage("Next step completed. The plant grew.");
+      setAnimating(true);
+      window.setTimeout(() => setAnimating(false), 900);
       onChanged();
     },
   });
@@ -183,6 +206,23 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
           </header>
 
           {message && <p className="notice" role="status">{message}</p>}
+
+          {!readOnly && project.status === "active" && (
+            <section className="next-step" aria-labelledby="next-step-title">
+              <h3 id="next-step-title">Next step</h3>
+              {project.nextStep ? (
+                <label className="next-step-check">
+                  <input type="checkbox" checked={false} onChange={() => completeNextStep.mutate()} disabled={completeNextStep.isPending} />
+                  <span>{project.nextStep}</span>
+                </label>
+              ) : (
+                <form className="inline-entry" onSubmit={(event) => { event.preventDefault(); setNextStep.mutate(); }}>
+                  <input value={nextStepText} onChange={(event) => setNextStepText(event.target.value)} placeholder="Add the next concrete step" maxLength={240} required />
+                  <button type="submit" disabled={setNextStep.isPending}>{setNextStep.isPending ? "Saving…" : "Set next step"}</button>
+                </form>
+              )}
+            </section>
+          )}
 
           {!readOnly && (
             <form className="effort-form" onSubmit={(event) => { event.preventDefault(); effort.mutate(); }}>
@@ -284,7 +324,7 @@ export function App() {
 
         <div className="garden-tools">
           <ViewChoice view={view} onChange={changeView} />
-          <FloatGarden projects={projects} view={view} onViewChange={changeView} onChanged={refresh} />
+          <FloatGarden projects={projects} />
         </div>
 
         <nav className="filter-row" aria-label="Project status filters">

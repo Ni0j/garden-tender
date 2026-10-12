@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { useMutation } from "@tanstack/react-query";
-import { api } from "./api";
 import { Plant, type Project } from "./Plant";
 
 export type ViewMode = "plant" | "minimal";
@@ -14,39 +12,14 @@ export function ViewChoice({ view, onChange }: { view: ViewMode; onChange: (view
   </div>;
 }
 
-function FloatingProject({ project, view, onChanged }: { project: Project; view: ViewMode; onChanged: () => void }) {
-  const [text, setText] = useState("");
-  const effort = useMutation({
-    mutationFn: () => api.addEffort({ projectId: project.id, text }),
-    onSuccess: () => { setText(""); onChanged(); },
-  });
-  return <>
-    {view === "plant" && <Plant project={project} animate={effort.isSuccess} />}
-    <h1>{project.name}</h1>
-    <p className="float-stage">{project.growthStage} · {project.efforts.length} effort{project.efforts.length === 1 ? "" : "s"}</p>
-    {view === "minimal" && <dl className="float-stats"><div><dt>Efforts</dt><dd>{project.efforts.length}</dd></div><div><dt>Outcomes</dt><dd>{project.outcomes.length}</dd></div></dl>}
-    <form className="float-effort" onSubmit={(event) => { event.preventDefault(); effort.mutate(); }}>
-      <label htmlFor="float-effort">What moved this project forward?</label>
-      <input id="float-effort" value={text} onChange={(event) => { setText(event.target.value); if (!effort.isPending) effort.reset(); }} maxLength={240} required placeholder="A little effort counts" />
-      <button className="primary-button" disabled={effort.isPending || !text.trim()}>{effort.isPending ? "Adding…" : "Add effort"}</button>
-      {effort.isError && <p className="form-error" role="alert">Could not add this effort. Your note is kept—try again.</p>}
-      {effort.isSuccess && <p className="float-feedback" role="status">Effort added. Your garden is up to date.</p>}
-    </form>
-  </>;
-}
-
-export function FloatGarden({ projects, view, onViewChange, onChanged }: {
-  projects: Project[]; view: ViewMode; onViewChange: (view: ViewMode) => void; onChanged: () => void;
-}) {
+export function FloatGarden({ projects }: { projects: Project[] }) {
   const [pip, setPip] = useState<Window | null>(null);
   const currentWindow = useRef<Window | null>(null);
   const opening = useRef(false);
   const mounted = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<number | null>(null);
   const available = projects.filter((project) => project.status !== "archived");
-  const project = available.find((item) => item.id === projectId) ?? available[0];
   const apiPip = (window as Window & { documentPictureInPicture?: PictureInPicture }).documentPictureInPicture;
 
   useEffect(() => {
@@ -66,7 +39,7 @@ export function FloatGarden({ projects, view, onViewChange, onChanged }: {
     setError(null);
     let child: Window | undefined;
     try {
-      child = await apiPip.requestWindow({ width: 340, height: view === "plant" ? 550 : 380 });
+      child = await apiPip.requestWindow({ width: 420, height: 420 });
       if (!mounted.current) { child.close(); return; }
       child.document.title = "Your floating garden";
       child.document.documentElement.lang = "en";
@@ -101,17 +74,13 @@ export function FloatGarden({ projects, view, onViewChange, onChanged }: {
     <p id="float-hint">{available.length === 0 ? "Plant a project to float it." : pip ? "Keep this tab open while your garden floats." : "Keep a plant beside your work."}</p>
     {error && <p className="float-error" role="alert">{error}</p>}
     {pip && createPortal(
-      <section className={`floating-garden view-${view}`} aria-label="Floating garden">
-        <header><span className="overline">Tended by effort</span><button className="text-button" onClick={() => pip.close()}>Close float</button></header>
-        <ViewChoice view={view} onChange={onViewChange} />
-        {project ? <>
-          <label className="float-project-label" htmlFor="float-project">Project</label>
-          <select id="float-project" value={project.id} onChange={(event) => setProjectId(Number(event.target.value))}>
-            {available.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-          <FloatingProject key={project.id} project={project} view={view} onChanged={onChanged} />
-        </> : <p className="empty-line">No growing or bloomed projects. Plant one in your garden to continue.</p>}
-        <p className="float-footnote">Lives with your garden tab. No installation needed.</p>
+      <section className="floating-garden" aria-label="Floating garden">
+        {available.map((project) => (
+          <figure className="floating-plant" key={project.id} tabIndex={0} aria-label={`${project.name}: ${project.growthStage}`}>
+            <Plant project={project} />
+            <figcaption>{project.name}</figcaption>
+          </figure>
+        ))}
       </section>, pip.document.body,
     )}
   </div>;
