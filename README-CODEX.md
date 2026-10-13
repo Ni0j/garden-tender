@@ -125,18 +125,25 @@ miss recent data. The original owner's private `app.db` was never included.
 
 ## Active work and layouts
 
-Each project now has ordered TODOs, a recurring/one-time type, a Float selection,
-a saved work reminder, normalized garden coordinates, and an Eisenhower quadrant.
-Migration `0005_project_details.sql` adds a JSON details column to the existing
-project table; legacy next-step text becomes the first TODO when read. TODO
-completion records effort once per item, including if it is unchecked and checked
-again. Recurring projects grow with effort without a deadline or completion prompt.
+Projects grow at their own pace, with an optional deadline and optional recurring
+activity setting. Existing one-time projects normalize to ongoing projects without
+changing their lifecycle, steps, notes, efforts, or outcomes.
 
-Float contains only explicitly selected companions. It uses Document
-Picture-in-Picture where available (desktop Chrome/Edge), with an in-page companion
-panel otherwise. Removing a companion never removes the project. Garden dragging
-supports pointer/touch and keyboard arrows. Matrix supports dragging, a touch drag
-handle, and a Move to selector. Each layout saves independently.
+Ordered next steps can be added, edited, reordered and completed. Completing a
+step records effort once per item. The latest effort supplies Previous step; the
+first unfinished item supplies Next step, including in Float. Earlier reminder
+notes remain in saved data but are no longer a separate input in the interface.
+
+Garden retains the original project-card grid. Matrix displays SVG plants in four
+priority quadrants, with pointer/touch dragging and keyboard arrows. Matrix
+coordinates and quadrant classification save independently of old garden positions.
+Migration `0005_project_details.sql` adds a JSON details column to the existing
+project table; legacy next-step text becomes the first TODO when read.
+
+Float contains only explicitly selected existing projects. Names remain visible
+above their SVG plants. It uses Document Picture-in-Picture where available
+(desktop Chrome/Edge), with an in-page preview available in other browsers.
+Removing a companion never removes the project.
 
 The Pages demo implements these actions locally, without backend requests. Data
 persists in the current browser profile and does not sync across devices. The

@@ -195,3 +195,22 @@ test("TODOs credit once, reorder and persist alongside independent project setti
   expect((await list(alice))[0].details.todos).toHaveLength(2);
   expect((await update({ kind: "settings", position: { x: 2, y: 0 } })).status).toBe(400);
 });
+
+test("existing project details migrate without losing deadlines, notes, steps or garden positions", async () => {
+  const id = await create(alice);
+  const legacy = { todos: [{ id: "a", text: "Read a chapter", done: false, credited: false }], projectType: "one-time", inFloat: true, context: "An older saved note", position: { x: .3, y: .7 }, quadrant: "plan" };
+  database.sqlite.query("UPDATE projects SET details = ?, deadline = ? WHERE id = ?").run(JSON.stringify(legacy), "2027-04-01", id);
+  const [migrated] = await list(alice);
+  expect(migrated.details.projectType).toBe("ongoing");
+  expect(migrated.details.context).toBe(legacy.context);
+  expect(migrated.details.matrixPosition).toBeNull();
+  await request("updateProject", alice, { projectId: id, change: { kind: "settings", projectType: "recurring", quadrant: "do", matrixPosition: { x: .8, y: .2 } } });
+  await request("updateProject", alice, { projectId: id, change: { kind: "toggleTodo", id: "a", done: true } });
+  const [project] = await list(alice);
+  expect(project.deadline).toBe("2027-04-01");
+  expect(project.details.position).toEqual(legacy.position);
+  expect(project.details.matrixPosition).toEqual({ x: .8, y: .2 });
+  expect(project.efforts.at(-1).text).toBe("Read a chapter");
+  expect(project.details.todos.filter((todo: {done: boolean}) => !todo.done)).toHaveLength(0);
+  expect(project.details.context).toBe(legacy.context);
+});

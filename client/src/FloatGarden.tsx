@@ -13,7 +13,7 @@ export function ViewChoice({ view, onChange }: { view: ViewMode; onChange: (view
   </div>;
 }
 
-export function FloatGarden({ projects, onOpen, onChange }: { projects: Project[]; onOpen: (id: number) => void; onChange: (id: number, selected: boolean) => void }) {
+export function FloatGarden({ projects, onOpen, onChange, busy: saving }: { projects: Project[]; onOpen: (id: number) => void; onChange: (id: number, selected: boolean) => void; busy: boolean }) {
   const [choosing, setChoosing] = useState(false);
   const [inline, setInline] = useState(false);
   const [pip, setPip] = useState<Window | null>(null);
@@ -65,36 +65,37 @@ export function FloatGarden({ projects, onOpen, onChange }: { projects: Project[
       setPip(opened);
     } catch {
       child?.close();
-      if (mounted.current) setError("The floating window could not open. Try Float again, or keep tending your garden here.");
+      if (mounted.current) { setInline(true); setError("This browser could not open a floating window. Your companions are shown here instead."); }
     } finally {
       opening.current = false;
       if (mounted.current) setBusy(false);
     }
   }
 
+  const returnTo = (id: number) => { setInline(false); onOpen(id); window.focus(); };
   const content = <section className="floating-garden" aria-label="Active companions">
-    {companions.length === 0 && <p>Choose a companion from your garden to keep it beside your work.</p>}
+    {companions.length === 0 && <p>Choose an existing project to keep it beside your work.</p>}
     {companions.map(project => <figure className="floating-plant" key={project.id}>
-      <button className="plant-button" onClick={() => { onOpen(project.id); window.focus(); }} aria-label={`Return to ${project.name}`}><Plant project={project} /></button>
-      <figcaption><button className="text-button" onClick={() => { onOpen(project.id); window.focus(); }}>{project.name} ↗</button></figcaption>
-      <p>{project.details.context || "Add a reminder of where you left off."}</p>
-      <small>Next: {project.details.todos.find(todo => !todo.done)?.text || "Choose your next step"}</small>
-      <button className="text-button" onClick={() => onChange(project.id, false)}>Remove companion</button>
+      <figcaption><button onClick={() => returnTo(project.id)}>{project.name}</button></figcaption>
+      <button className="plant-button" onClick={() => returnTo(project.id)} aria-label={`Return to ${project.name}`}><Plant project={project} /></button>
+      <dl className="float-steps"><div><dt>Previous</dt><dd>{project.efforts.at(-1)?.text || "No steps completed yet"}</dd></div><div><dt>Next</dt><dd>{project.details.todos.find(todo => !todo.done)?.text || "Choose a next step"}</dd></div></dl>
+      <button className="text-button remove-companion" disabled={saving} onClick={() => onChange(project.id, false)}>Remove from Float</button>
     </figure>)}
   </section>;
-  return <div className="float-control">
-    <button className="float-button" onClick={() => setChoosing(!choosing)}>Choose companions ({companions.length})</button>
-    <button className="float-button" onClick={() => void open()} disabled={busy || companions.length === 0}>
-      {busy ? "Opening…" : pip ? "Show Float ↗" : "Float ↗"}
-    </button>
-    <button className="text-button" disabled={companions.length === 0} onClick={() => setInline(!inline)}>{inline ? "Hide companions here" : "Show companions here"}</button>
-    <p>Keep selected projects beside your work.</p>
+  return <section className="float-control" aria-labelledby="float-title">
+    <div className="float-heading"><div><h2 id="float-title">Float · current companions</h2><p>Bring existing projects beside your work. Your garden stays as it is.</p></div>
+      <div className="float-actions">
+        <button className="float-button" aria-expanded={choosing} onClick={() => setChoosing(!choosing)}>{choosing ? "Done choosing" : "Choose plants"}{companions.length > 0 ? ` (${companions.length})` : ""}</button>
+        <button className="text-button" onClick={() => void open()} disabled={busy || companions.length === 0}>{busy ? "Opening…" : pip ? "Show Float ↗" : "Open Float ↗"}</button>
+      </div>
+    </div>
+    {companions.length > 0 && <button className="text-button inline-float-toggle" onClick={() => setInline(!inline)}>{inline ? "Hide preview" : "Preview companions here"}</button>}
     {choosing && <div className="companion-picker">
-      {available.length === 0 && <p>Plant a project to choose a companion.</p>}
-      {available.map(project => <label key={project.id}><input type="checkbox" checked={project.details.inFloat} onChange={e => onChange(project.id, e.target.checked)} />{project.name}</label>)}
+      {available.length === 0 && <p>Your projects will appear here after you add a plant to the garden.</p>}
+      {available.map(project => <label key={project.id}><input type="checkbox" checked={project.details.inFloat} disabled={saving} onChange={e => onChange(project.id, e.target.checked)} />{project.name}</label>)}
     </div>}
     {error && <p className="float-error" role="status">{error}</p>}
     {pip && createPortal(content, pip.document.body)}
-    {inline && <aside className="inline-float"><button className="text-button" onClick={() => setInline(false)}>Close Float</button>{content}</aside>}
-  </div>;
+    {inline && <aside className="inline-float" aria-label="Float preview"><button className="text-button" onClick={() => setInline(false)}>Close preview</button>{content}</aside>}
+  </section>;
 }

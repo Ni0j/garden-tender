@@ -1,4 +1,4 @@
-import { FreeGarden, Matrix } from "./GardenViews";
+import { Matrix } from "./GardenViews";
 import { ProjectWork } from "./ProjectWork";
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -30,12 +30,46 @@ function nextMilestone(count: number): string {
 }
 
 
+function GardenCard({ project, onOpen, animate }: { project: Project; onOpen: () => void; animate: boolean }) {
+  const [fruitLabel, setFruitLabel] = useState<string | null>(null);
+  return (
+    <article className={`garden-card status-${project.status}`}>
+      <button className="plant-button" onClick={onOpen} aria-label={`Open ${project.name}`}>
+        <Plant project={project} animate={animate} />
+      </button>
+      <div className="project-caption">
+        <div>
+          <h2>{project.name}</h2>
+          <p>{project.growthStage} · {project.efforts.length} effort{project.efforts.length === 1 ? "" : "s"}</p>
+        </div>
+        {project.outcomes.length > 0 && (
+          <button
+            className="fruit-count"
+            onClick={() => {
+              const outcome = project.outcomes[0];
+              setFruitLabel(outcome ? `${outcome.type}: ${outcome.value}${project.outcomes.length > 1 ? ` +${project.outcomes.length - 1}` : ""}` : null);
+            }}
+            aria-label={`Show outcomes for ${project.name}`}
+          >
+            <span className="fruit-dot" /> {project.outcomes.length}
+          </button>
+        )}
+      </div>
+      {fruitLabel && (
+        <button className="fruit-note" onClick={() => setFruitLabel(null)} aria-label="Hide outcome">
+          {fruitLabel}
+        </button>
+      )}
+    </article>
+  );
+}
+
 function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [nextStep, setNextStep] = useState("");
   const [deadline, setDeadline] = useState("");
-  const [projectType, setProjectType] = useState<"one-time" | "recurring">("one-time");
+  const [projectType, setProjectType] = useState<"ongoing" | "recurring">("ongoing");
   const create = useMutation({
     mutationFn: () => api.createProject({ name, description, projectType, nextStep: nextStep.trim() || null, deadline: deadline || null }),
     onSuccess: (result) => onCreated(result.id),
@@ -50,7 +84,7 @@ function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCre
         <div className="sheet-heading">
           <div>
             <p className="overline">New ground</p>
-            <h2 id="plant-seed-title">Plant a project</h2>
+            <h2 id="plant-seed-title">Grow a new project</h2>
           </div>
           <button className="close-button" onClick={onClose} aria-label="Close new project form">×</button>
         </div>
@@ -67,13 +101,13 @@ function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCre
             Next step <span>optional</span>
             <input value={nextStep} onChange={(event) => setNextStep(event.target.value)} maxLength={240} placeholder="The next concrete thing to do" />
           </label>
-          <label>Project type<select value={projectType} onChange={e => setProjectType(e.target.value as "one-time" | "recurring")}><option value="one-time">One-time</option><option value="recurring">Recurring</option></select></label>
-          {projectType === "one-time" && <label>
-            Deadline <span>optional</span>
+          <label className="recurring-choice"><input type="checkbox" checked={projectType === "recurring"} onChange={e => setProjectType(e.target.checked ? "recurring" : "ongoing")} />This is a recurring activity</label>
+          <label>
+            Deadline <span>optional — grow at your own pace</span>
             <input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
-          </label>}
+          </label>
           {create.error && <p className="form-error">Could not plant this seed. Try again.</p>}
-          <button className="primary-button" type="submit" disabled={create.isPending}>{create.isPending ? "Planting…" : "Plant seed"}</button>
+          <button className="primary-button" type="submit" disabled={create.isPending}>{create.isPending ? "Planting…" : "Create project"}</button>
         </form>
       </div>
     </div>
@@ -162,6 +196,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
           <ProjectWork key={project.id} project={project} onChanged={onChanged} />
 
           {!readOnly && (
+            <details className="other-effort"><summary>Log other work</summary>
             <form className="effort-form" onSubmit={(event) => { event.preventDefault(); effort.mutate(); }}>
               <label htmlFor="effort-entry">What moved this project forward?</label>
               <div className="inline-entry">
@@ -169,13 +204,10 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
                 <button type="submit" disabled={effort.isPending}>{effort.isPending ? "Adding…" : "Add effort"}</button>
               </div>
             </form>
+            </details>
           )}
 
-          <div className="history-section">
-            <div className="section-heading">
-              <h3>Effort history</h3>
-              <span>{project.efforts.length}</span>
-            </div>
+          <details className="history-section"><summary>Effort history ({project.efforts.length})</summary>
             {project.efforts.length === 0 ? (
               <p className="empty-line">No effort logged yet. The seed is waiting.</p>
             ) : (
@@ -188,7 +220,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
                 ))}
               </ol>
             )}
-          </div>
+          </details>
 
           <div className="outcome-section">
             <div className="section-heading">
@@ -212,7 +244,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
 
           {!readOnly && (
             <div className="project-actions">
-              {project.status === "active" && project.details.projectType === "one-time" && <button className="complete-button" onClick={() => complete.mutate()} disabled={complete.isPending}>Mark complete</button>}
+              {project.status === "active" && project.details.projectType === "ongoing" && <button className="complete-button" onClick={() => complete.mutate()} disabled={complete.isPending}>Mark complete</button>}
               <button className="archive-button" onClick={() => archive.mutate()} disabled={archive.isPending}>Archive project</button>
             </div>
           )}
@@ -236,7 +268,7 @@ export function App() {
   const [filter, setFilter] = useState<Filter>("active");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
-  const [, setAnimatingId] = useState<number | null>(null);
+  const [animatingId, setAnimatingId] = useState<number | null>(null);
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => api.listProjects({}) });
   const projects = projectsQuery.data?.projects ?? [];
   const selected = projects.find((project) => project.id === selectedId) ?? null;
@@ -260,16 +292,16 @@ export function App() {
             <p className="intro-copy">Keep your place. Tend your projects, one small effort at a time.</p>
             {__GITHUB_PAGES__ && <p className="storage-note">Your garden is saved in this browser on this device.</p>}
           </div>
-          <button className="add-project" onClick={() => setCreating(true)}><span>＋</span> Plant project</button>
+          <button className="add-project" onClick={() => setCreating(true)}><span>＋</span> Add a plant</button>
         </header>
 
         <div className="garden-tools">
           <ViewChoice view={view} onChange={changeView} />
-          <FloatGarden projects={projects} onOpen={setSelectedId} onChange={(id, inFloat) => update.mutate({ projectId: id, change: { kind: "settings", inFloat } })} />
+          <label className="type-filter">Show <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All projects</option><option value="recurring">Recurring activities</option><option value="ongoing">Other projects</option></select></label>
         </div>
 
         {update.error && <p role="alert" className="form-error">Could not save this change. Please try again.</p>}
-        <label className="type-filter">Project type <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All types</option><option value="recurring">Recurring</option><option value="one-time">One-time</option></select></label>
+
         <nav className="filter-row" aria-label="Project status filters">
           {FILTERS.map((item) => (
             <button key={item.value} className={filter === item.value ? "active" : ""} onClick={() => setFilter(item.value)}>
@@ -285,8 +317,8 @@ export function App() {
         ) : visibleProjects.length === 0 ? (
           <div className="empty-garden">
             <div className="empty-seed" />
-            <h2>{filter === "active" ? "Plant the first seed." : filter === "completed" ? "No projects have bloomed yet." : "No plants are dormant."}</h2>
-            <p>{filter === "active" ? "A project begins here, then grows only when you record real effort." : "This bed will hold the projects that reach this season."}</p>
+            <h2>{typeFilter !== "all" ? "No projects match this view." : filter === "active" ? "Plant the first seed." : filter === "completed" ? "No projects have bloomed yet." : "No plants are dormant."}</h2>
+            <p>{filter === "active" ? "Give something you care about a place to grow." : "This bed will hold the projects that reach this season."}</p>
             {filter === "active" && <button onClick={() => setCreating(true)}>Plant a project</button>}
           </div>
         ) : view === "minimal" ? (
@@ -302,8 +334,12 @@ export function App() {
         ) : view === "matrix" ? (
           <Matrix projects={visibleProjects} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />
         ) : (
-          <FreeGarden projects={visibleProjects} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />
+          <section className="garden-bed" aria-label="Garden projects">
+            <div className="garden-rule" />
+            <div className="plant-grid">{visibleProjects.map(project => <GardenCard key={project.id} project={project} onOpen={() => setSelectedId(project.id)} animate={animatingId === project.id} />)}</div>
+          </section>
         )}
+        <FloatGarden projects={projects} onOpen={setSelectedId} onChange={(id, inFloat) => update.mutate({ projectId: id, change: { kind: "settings", inFloat } })} busy={update.isPending} />
       </main>
 
       {creating && <CreateProjectPanel onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setSelectedId(id); refresh(); }} />}

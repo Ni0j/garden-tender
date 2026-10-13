@@ -1,4 +1,4 @@
-import { initialDetails, changeDetails, changeShape } from "../../shared/project";
+import { initialDetails, normalizeDetails, changeDetails, changeShape } from "../../shared/project";
 import type { z } from "zod";
 import type { contracts } from "../../server/src/actions";
 
@@ -41,7 +41,7 @@ function readGarden(): StoredGarden {
     const saved = localStorage.getItem(gardenStorageKey);
     if (saved) {
       const garden = JSON.parse(saved) as StoredGarden;
-      garden.projects.forEach((project) => { project.nextStep ??= null; project.details ??= initialDetails(project.nextStep); });
+      garden.projects.forEach((project) => { project.nextStep ??= null; project.details = normalizeDetails(project.details, project.nextStep); });
       return garden;
     }
   } catch { /* Start with an empty garden if local storage is unavailable or damaged. */ }
@@ -68,9 +68,9 @@ async function localPost<K extends ActionName>(name: K, args: RequestArgs<K>): P
     const input = args as RequestArgs<"createProject">;
     const id = garden.nextId++;
     garden.projects.unshift({
-      id, name: input.name.trim(), description: input.description.trim(), nextStep: input.nextStep?.trim() || null, deadline: input.projectType === "recurring" ? null : input.deadline,
+      id, name: input.name.trim(), description: input.description.trim(), nextStep: input.nextStep?.trim() || null, deadline: input.deadline,
       status: "active", plantVariant: id % 6, createdAt: new Date().toISOString(), completedAt: null,
-      growthStage: "Seed", efforts: [], outcomes: [], details: { ...initialDetails(input.nextStep), projectType: input.projectType ?? "one-time" },
+      growthStage: "Seed", efforts: [], outcomes: [], details: { ...initialDetails(input.nextStep), projectType: input.projectType === "recurring" ? "recurring" : "ongoing" },
     });
     saveGarden(garden);
     return { id } as ResponseBody<K>;
@@ -88,7 +88,6 @@ async function localPost<K extends ActionName>(name: K, args: RequestArgs<K>): P
     const effort = changeDetails(project.details, change);
     if (effort) project.efforts.push({ id: garden.nextId++, text: effort, createdAt: new Date().toISOString() });
     project.nextStep = null;
-    if (project.details.projectType === "recurring") project.deadline = null;
     project.growthStage = growthStage(project.efforts.length, project.status === "completed");
   } else if (name === "addEffort") {
     const effort = args as RequestArgs<"addEffort">;

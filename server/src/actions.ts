@@ -1,4 +1,4 @@
-import { detailsShape, initialDetails, changeShape, changeDetails } from "../../shared/project";
+import { detailsShape, initialDetails, normalizeDetails, changeShape, changeDetails } from "../../shared/project";
 import { z } from "zod";
 import type { GardenDatabase } from "./db";
 
@@ -53,7 +53,7 @@ export const contracts = {
       name: z.string().trim().min(1).max(80),
       description: z.string().trim().min(1).max(300),
       nextStep: z.string().trim().max(240).nullable().optional(),
-      projectType: z.enum(["one-time", "recurring"]).optional(),
+      projectType: z.enum(["ongoing", "one-time", "recurring"]).optional(),
       deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
     }), response: z.object({ id: z.number() }) },
   setNextStep: { request: z.object({ projectId: z.number().int().positive(), text: z.string().trim().min(1).max(240) }), response: okResponse },
@@ -77,10 +77,10 @@ export const Actions = {
     const project = db.select().from(schema.projects).where(where).get();
     if (!project) throw new Error("Project not found.");
     if (project.status === "archived" && args.change.kind !== "settings") throw new Error("Archived projects are dormant.");
-    const details = project.details ?? initialDetails(project.nextStep);
+    const details = normalizeDetails(project.details, project.nextStep);
     const effort = changeDetails(details, args.change);
     if (effort) db.insert(schema.efforts).values({ userId, projectId: project.id, text: effort }).run();
-    db.update(schema.projects).set({ details, nextStep: null, ...(details.projectType === "recurring" ? { deadline: null } : {}) }).where(where).run();
+    db.update(schema.projects).set({ details, nextStep: null }).where(where).run();
     return { ok: true as const };
   },
   listProjects(ctx: Context) {
@@ -113,7 +113,7 @@ export const Actions = {
             name: project.name,
             description: project.description,
             nextStep: project.nextStep,
-            details: project.details ?? initialDetails(project.nextStep),
+            details: normalizeDetails(project.details, project.nextStep),
             deadline: project.deadline,
             status: project.status,
             plantVariant: project.plantVariant,
@@ -135,8 +135,8 @@ export const Actions = {
         name: args.name,
         description: args.description,
         nextStep: args.nextStep ?? null,
-        deadline: args.projectType === "recurring" ? null : args.deadline,
-        details: { ...initialDetails(args.nextStep), projectType: args.projectType ?? "one-time" },
+        deadline: args.deadline,
+        details: { ...initialDetails(args.nextStep), projectType: args.projectType === "recurring" ? "recurring" : "ongoing" },
         plantVariant: nextVariant,
       }).returning({ id: schema.projects.id }).all();
       const inserted = rows[0];
