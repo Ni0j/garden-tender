@@ -1,0 +1,92 @@
+import { useEffect, useState, type FormEvent } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { Session, SupabaseClient } from "@supabase/supabase-js";
+import { App } from "./App";
+import { getAuthClient } from "./auth";
+
+function SignIn({ client }: { client: SupabaseClient }) {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  async function sendCode(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    setBusy(false);
+    if (error) setMessage(error.message);
+    else setSent(true);
+  }
+
+  async function verifyCode(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setMessage(null);
+    const { error } = await client.auth.verifyOtp({ email, token: code.replace(/\s/g, ""), type: "email" });
+    setBusy(false);
+    if (error) setMessage(error.message);
+  }
+
+  return (
+    <main className="auth-page">
+      <section className="auth-card" aria-labelledby="auth-title">
+        <p className="overline">Tended by effort</p>
+        <h1 id="auth-title">Return to your garden.</h1>
+        <p>Your projects stay private and travel with your account.</p>
+        {!sent ? (
+          <form className="stack-form" onSubmit={sendCode}>
+            <label>Email address<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoFocus /></label>
+            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Sending…" : "Email me a sign-in code"}</button>
+          </form>
+        ) : (
+          <form className="stack-form" onSubmit={verifyCode}>
+            <label>Six-digit code<input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value)} minLength={6} maxLength={8} required autoFocus /></label>
+            <button className="primary-button" type="submit" disabled={busy}>{busy ? "Checking…" : "Enter the garden"}</button>
+            <button className="text-button" type="button" onClick={() => { setSent(false); setCode(""); setMessage(null); }}>Use a different email</button>
+          </form>
+        )}
+        {message && <p className="form-error" role="alert">{message}</p>}
+      </section>
+    </main>
+  );
+}
+
+export function AccountGate() {
+  const queryClient = useQueryClient();
+  const [client, setClient] = useState<SupabaseClient | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+    void getAuthClient().then(async (authClient) => {
+      if (!active) return;
+      setClient(authClient);
+      const { data, error: sessionError } = await authClient.auth.getSession();
+      if (!active) return;
+      if (sessionError) setError(sessionError.message);
+      setSession(data.session);
+      setLoading(false);
+      const listener = authClient.auth.onAuthStateChange((_event, nextSession) => {
+        queryClient.clear();
+        setSession(nextSession);
+      });
+      unsubscribe = () => listener.data.subscription.unsubscribe();
+    }).catch((reason: unknown) => {
+      if (!active) return;
+      setError(reason instanceof Error ? reason.message : "Authentication could not start.");
+      setLoading(false);
+    });
+    return () => { active = false; unsubscribe?.(); };
+  }, [queryClient]);
+
+  if (loading) return <div className="loading-garden auth-loading"><span /><span /><span /><p>Opening the gate…</p></div>;
+  if (error || !client) return <main className="auth-page"><section className="auth-card"><h1>The garden gate is unavailable.</h1><p className="form-error">{error}</p></section></main>;
+  if (!session?.user.email) return <SignIn client={client} />;
+  return <App key={session.user.id} accountEmail={session.user.email} onSignOut={(localOnly = false) => client.auth.signOut(localOnly ? { scope: "local" } : undefined)} />;
+}

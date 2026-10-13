@@ -2,7 +2,7 @@ import { Matrix } from "./GardenViews";
 import { ProjectWork } from "./ProjectWork";
 import { useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "./api";
+import { api, clearAnonymousId, existingAnonymousId } from "./api";
 import { Plant, type Project } from "./Plant";
 import { FloatGarden, ViewChoice, type ViewMode } from "./FloatGarden";
 
@@ -254,8 +254,11 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
   );
 }
 
-export function App() {
+export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignOut: (localOnly?: boolean) => Promise<unknown> }) {
   const queryClient = useQueryClient();
+  const [anonymousId, setAnonymousId] = useState(existingAnonymousId);
+  const [migrationDismissed, setMigrationDismissed] = useState(false);
+  const [accountMessage, setAccountMessage] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>(() => {
     try { const saved = localStorage.getItem("project-garden.view"); return saved === "minimal" || saved === "matrix" ? saved : "plant"; }
     catch { return "plant"; }
@@ -281,6 +284,37 @@ export function App() {
   const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["projects"] }); };
 
   const update = useMutation({ mutationFn: api.updateProject, onSuccess: refresh });
+  const migrate = useMutation({
+    mutationFn: (id: string) => api.claimAnonymousGarden({ anonymousUserId: id }),
+    onSuccess: (result) => {
+      clearAnonymousId();
+      setAnonymousId(null);
+      setAccountMessage(result.migratedProjects > 0 ? `Moved ${result.migratedProjects} project${result.migratedProjects === 1 ? "" : "s"} into this account.` : "This browser did not have any projects to move.");
+      refresh();
+    },
+  });
+  const exportData = useMutation({
+    mutationFn: () => api.exportGarden({}),
+    onSuccess: (data) => {
+      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `gardener-export-${new Date().toISOString().slice(0, 10)}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    },
+  });
+  const deleteData = useMutation({
+    mutationFn: () => api.deletePersonalData({ confirmation: "DELETE" }),
+    onSuccess: async () => {
+      queryClient.clear();
+      await onSignOut(true);
+    },
+  });
+
+  function permanentlyDeleteData() {
+    if (window.confirm("Permanently delete this account and every project, effort, and outcome? This cannot be undone.")) deleteData.mutate();
+  }
 
   return (
     <div className="app-shell">
@@ -290,10 +324,34 @@ export function App() {
             <p className="overline">Tended by effort</p>
             <h1>Your garden</h1>
             <p className="intro-copy">Keep your place. Tend your projects, one small effort at a time.</p>
-            {__GITHUB_PAGES__ && <p className="storage-note">Your garden is saved in this browser on this device.</p>}
           </div>
-          <button className="add-project" onClick={() => setCreating(true)}><span>＋</span> Add a plant</button>
+          <div className="header-actions">
+            <details className="account-menu">
+              <summary aria-label="Account menu">Account</summary>
+              <div>
+                <p>{accountEmail}</p>
+                {anonymousId && <button onClick={() => { setMigrationDismissed(false); }}>Import this browser’s old garden</button>}
+                <button onClick={() => exportData.mutate()} disabled={exportData.isPending}>{exportData.isPending ? "Preparing export…" : "Export garden data"}</button>
+                <button onClick={() => { void onSignOut(); }}>Sign out</button>
+                <button className="danger-action" onClick={permanentlyDeleteData} disabled={deleteData.isPending}>{deleteData.isPending ? "Deleting…" : "Delete account and garden data"}</button>
+                {(exportData.error || deleteData.error) && <p className="form-error">That account action could not be completed.</p>}
+              </div>
+            </details>
+            <button className="add-project" onClick={() => setCreating(true)}><span>＋</span> Add a plant</button>
+          </div>
         </header>
+
+        {anonymousId && !migrationDismissed && (
+          <section className="migration-notice" aria-labelledby="migration-title">
+            <div><h2 id="migration-title">Bring your existing garden with you?</h2><p>This browser has an older anonymous garden. Move it into {accountEmail} so it is available on every device.</p></div>
+            <div className="migration-actions">
+              <button className="secondary-button" onClick={() => migrate.mutate(anonymousId)} disabled={migrate.isPending}>{migrate.isPending ? "Moving…" : "Move my garden"}</button>
+              <button className="text-button" onClick={() => setMigrationDismissed(true)} disabled={migrate.isPending}>Not now</button>
+            </div>
+            {migrate.error && <p className="form-error" role="alert">This garden could not be moved. It may already belong to another account.</p>}
+          </section>
+        )}
+        {accountMessage && <p className="notice account-notice" role="status">{accountMessage}</p>}
 
         <div className="garden-tools">
           <ViewChoice view={view} onChange={changeView} />

@@ -44,3 +44,11 @@ export const outcomes = sqliteTable("outcomes", {
     .notNull()
     .$defaultFn(() => new Date()),
 });
+
+export const anonymousClaims = sqliteTable("anonymous_claims", {
+  anonymousUserId: text("anonymous_user_id").primaryKey(),
+  accountUserId: text("account_user_id"),
+  claimedAt: integer("claimed_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
+});

@@ -19,12 +19,16 @@ and API. No separate frontend server, Hatch runtime, or manual database setup
 is needed. Startup creates the database directory and applies migrations.
 Rebuild after changing source files; `start` serves the existing build.
 
-Optional environment variables (also shown in `.env.example`):
+Environment variables (also shown in `.env.example`):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `3000` | HTTP listening port; use an available port |
 | `DATABASE_PATH` | `./data/garden.db` | SQLite file, relative to the working directory or absolute |
+| `SUPABASE_URL` | required | Supabase project URL used for email authentication |
+| `SUPABASE_PUBLISHABLE_KEY` | required | Public project key used by the client and for server token validation |
+| `SUPABASE_SECRET_KEY` | required | Server-only secret key used solely to permanently delete Auth users |
+| `APP_ORIGIN` | empty | Optional comma-separated origins allowed to call the API when the client is hosted elsewhere |
 
 For example, `PORT=4173 bun run start`. Keep the same `DATABASE_PATH` when
 restarting to retain data. Bun can load a local `.env`; it is excluded from
@@ -46,25 +50,35 @@ source and Docker build context. `GET /healthz` returns `{"ok":true}`.
 There are no Hatch SDK dependencies. The client uses `fetch` and a standard
 React Query `QueryClient`.
 
-## Anonymous gardens and API
+## Accounts, authorization, and the API
 
-The client generates a random UUID once per browser origin and persists it in
-localStorage under `project-garden.user-id`. Every API request sends that ID
-in the `X-User-Id` header. Requests use `POST /api/<action>` with a JSON argument
-object and `Content-Type: application/json`.
+Supabase Auth provides passwordless email codes. Its browser SDK persists and
+refreshes the session in local storage, so reloads and later visits remain signed
+in. Every data request sends the access token as `Authorization: Bearer <token>`.
+The Bun server validates that token against Supabase Auth's `/auth/v1/user`
+endpoint and derives `user_id` from the verified user response. `X-User-Id` is
+not accepted as authentication.
 
 Actions: `listProjects`, `createProject`, `addEffort`, `addOutcome`,
-`completeProject`, `archiveProject`, and `seedSampleGarden`.
+`completeProject`, `archiveProject`, `seedSampleGarden`, `claimAnonymousGarden`,
+`exportGarden`, and `deletePersonalData`.
 
 Projects, efforts, and outcomes are scoped by `user_id`; mutations check project
-ownership. Samples are opt-in and separate for each identity. Migration
+ownership on the server. Samples are opt-in and separate for each account. Migration
 `0003_user_isolation.sql` preserves older rows under `legacy-unassigned`, which
-cannot be used as a browser UUID, keeping them hidden from new visitors.
+cannot be claimed by a browser UUID, keeping them hidden from new visitors.
 
-This is anonymous demo identity, not authenticated login. Anyone with a browser's
-ID can use that garden. Tabs on the same origin share identity; different browser
-profiles have separate gardens. Clearing localStorage loses access to that garden.
-Use HTTPS outside localhost for browser UUID generation.
+Existing browser UUIDs are used only by the authenticated
+`claimAnonymousGarden` migration. After sign-in, the UI offers to move that
+browser's older garden into the account. The move updates projects, efforts, and
+outcomes inside one SQLite transaction and records the UUID in
+`anonymous_claims`, preventing another account from claiming it later. Deleting
+account data leaves a claim tombstone but removes the account association.
+
+The account menu downloads a JSON export and can permanently delete the signed-in
+account. Deletion removes projects, efforts, and outcomes, tombstones any prior
+anonymous claim, and then removes the Supabase Auth user through the server-only
+Admin API.
 
 Growth stages retain the original effort thresholds: 0 / 1 / 3 / 6 / 10 / 15.
 Completing a project makes it Bloom; archived projects are dormant.
@@ -76,15 +90,17 @@ bun run typecheck
 bun test
 ```
 
-The backend tests cover isolation, foreign project mutations, request validation,
-per-user sample gardens, growth stages, persistence on database reopen, and legacy
-migration. They use temporary databases rather than the local garden.
+The backend tests cover authenticated isolation, forged-header rejection, foreign
+project mutations, atomic one-time anonymous claiming, export, deletion, request
+validation, per-user sample gardens, growth stages, persistence on database reopen,
+and legacy migration. They use temporary databases rather than the local garden.
 
-For manual verification, use independent browser profiles: each should start
-empty, and a project added in one must remain invisible in the other. Log an
-effort, restart the server with the same database path, and reload to confirm the
-project and effort remain. Check the create/log flow and recovery from server
-errors at a 390 × 844 viewport as well as desktop size.
+For manual verification, sign in with separate email accounts in independent
+browser profiles: each should start empty, and a project added in one must remain
+invisible in the other. Log an effort, restart the server with the same database
+path, and reload to confirm the project and effort remain. Check the sign-in,
+create/log, legacy import, export, and error flows at a 390 × 844 viewport as well
+as desktop size.
 
 ## Docker and deployment configuration
 
@@ -110,11 +126,16 @@ persistence. The named volume retains data when the container is removed;
 do not delete it if you want to keep the garden. No external deployment is
 performed by these local commands. Render deployment itself has not been verified.
 
-The repository also deploys a standalone build to **GitHub Pages** through
-`.github/workflows/pages.yml`. Because Pages cannot run the Bun/SQLite server,
-that build stores each visitor's garden in their browser's local storage. Its
-data stays on that device and browser profile. The Render deployment remains
-the option for server-backed persistence.
+The repository can deploy the client to **GitHub Pages** through
+`.github/workflows/pages.yml`, but Pages cannot run the Bun/SQLite server. Set the
+repository variable `PUBLIC_API_BASE_URL` to the Render service URL and set
+`APP_ORIGIN` on Render to the exact Pages origin. Without those values the Pages
+build cannot use authenticated data. Same-origin Render hosting needs neither.
+
+In Supabase, enable Email auth and use an email template containing `{{ .Token }}`
+so the UI's code entry matches the delivered message. Add the production and
+local URLs to the allowed redirect URLs. Configure a server-only `sb_secret_...`
+key for account deletion; never expose it in client build variables or source.
 
 ## Files to preserve
 
@@ -145,6 +166,5 @@ above their SVG plants. It uses Document Picture-in-Picture where available
 (desktop Chrome/Edge), with an in-page preview available in other browsers.
 Removing a companion never removes the project.
 
-The Pages demo implements these actions locally, without backend requests. Data
-persists in the current browser profile and does not sync across devices. The
-server build supports the same features through the existing isolated SQLite API.
+All deployed clients now use the authenticated Bun API. There is no separate
+browser-only garden implementation.

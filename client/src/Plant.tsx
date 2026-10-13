@@ -47,12 +47,6 @@ export function Plant({ project, large = false, animate = false }: { project: Pr
                 <circle cx="0" cy="0" r="5.5" fill="var(--pollen)" />
               </g>
             )}
-            {project.status === "completed" && !archived && (
-              <g opacity=".9">
-                <circle cx={69 + bend * .5} cy={topY + 34} r="5" fill={flowerColor} />
-                <circle cx={112 + bend * .25} cy={topY + 54} r="4.5" fill={flowerColor} />
-              </g>
-            )}
           </g>
         )}
         {archived && count > 0 && (

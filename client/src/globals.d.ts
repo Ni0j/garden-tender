@@ -1,2 +1,2 @@
 declare module "*.css";
-declare const __GITHUB_PAGES__: boolean;
+declare const __API_BASE_URL__: string;

@@ -12,7 +12,7 @@ const result = await Bun.build({
   minify: true,
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
-    __GITHUB_PAGES__: JSON.stringify(process.env.GITHUB_PAGES === "true"),
+    __API_BASE_URL__: JSON.stringify(process.env.PUBLIC_API_BASE_URL ?? ""),
   },
   plugins: [{ name: "separate-css", setup(build) {
     build.onLoad({ filter: /\.css$/ }, () => ({ contents: "", loader: "js" }));

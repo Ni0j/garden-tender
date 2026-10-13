@@ -5,7 +5,7 @@ import type { GardenDatabase } from "./db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import * as schema from "./schema";
 
-export type Context = { db: Pick<GardenDatabase, "select" | "insert" | "update">; userId: string };
+export type Context = { db: Pick<GardenDatabase, "select" | "insert" | "update" | "delete">; userId: string; email: string };
 
 const projectStatus = z.enum(["active", "completed", "archived"]);
 const effortShape = z.object({
@@ -68,7 +68,56 @@ export const contracts = {
   completeProject: { request: z.object({ projectId: z.number().int().positive() }), response: okResponse },
   archiveProject: { request: z.object({ projectId: z.number().int().positive() }), response: okResponse },
   seedSampleGarden: { request: z.object({}), response: z.object({ added: z.number() }) },
+  claimAnonymousGarden: {
+    request: z.object({ anonymousUserId: z.uuid() }),
+    response: z.object({ status: z.enum(["claimed", "already-claimed"]), migratedProjects: z.number().int().nonnegative() }),
+  },
+  exportGarden: {
+    request: z.object({}),
+    response: z.object({ version: z.literal(1), exportedAt: z.string(), email: z.email(), projects: z.array(projectShape) }),
+  },
+  deletePersonalData: { request: z.object({ confirmation: z.literal("DELETE") }), response: okResponse },
 };
+
+function listProjects(ctx: Context) {
+  const { db, userId } = ctx;
+  const [projectRows, effortRows, outcomeRows] = [
+    db.select().from(schema.projects).where(eq(schema.projects.userId, userId)).orderBy(desc(schema.projects.createdAt)).all(),
+    db.select().from(schema.efforts).where(eq(schema.efforts.userId, userId)).orderBy(asc(schema.efforts.createdAt)).all(),
+    db.select().from(schema.outcomes).where(eq(schema.outcomes.userId, userId)).orderBy(asc(schema.outcomes.createdAt)).all(),
+  ] as const;
+  return {
+    projects: projectRows.map((project) => {
+      const projectEfforts = effortRows
+        .filter((effort) => effort.projectId === project.id)
+        .map((effort) => ({ id: effort.id, text: effort.text, createdAt: effort.createdAt.toISOString() }));
+      const projectOutcomes = outcomeRows
+        .filter((outcome) => outcome.projectId === project.id)
+        .map((outcome) => ({
+          id: outcome.id,
+          type: outcome.type,
+          value: outcome.value,
+          note: outcome.note,
+          createdAt: outcome.createdAt.toISOString(),
+        }));
+      return {
+        id: project.id,
+        name: project.name,
+        description: project.description,
+        nextStep: project.nextStep,
+        details: normalizeDetails(project.details, project.nextStep),
+        deadline: project.deadline,
+        status: project.status,
+        plantVariant: project.plantVariant,
+        createdAt: project.createdAt.toISOString(),
+        completedAt: project.completedAt?.toISOString() ?? null,
+        growthStage: growthStage(projectEfforts.length, project.status === "completed"),
+        efforts: projectEfforts,
+        outcomes: projectOutcomes,
+      };
+    }),
+  };
+}
 
 export const Actions = {
   updateProject(ctx: Context, args: z.infer<typeof contracts.updateProject.request>) {
@@ -84,47 +133,7 @@ export const Actions = {
     return { ok: true as const };
   },
   listProjects(ctx: Context) {
-      const { db, userId } = ctx;
-      const [projectRows, effortRows, outcomeRows] = [
-        db.select().from(schema.projects).where(eq(schema.projects.userId, userId)).orderBy(desc(schema.projects.createdAt)).all(),
-        db.select().from(schema.efforts).where(eq(schema.efforts.userId, userId)).orderBy(asc(schema.efforts.createdAt)).all(),
-        db.select().from(schema.outcomes).where(eq(schema.outcomes.userId, userId)).orderBy(asc(schema.outcomes.createdAt)).all(),
-      ] as const;
-      return {
-        projects: projectRows.map((project) => {
-          const projectEfforts = effortRows
-            .filter((effort) => effort.projectId === project.id)
-            .map((effort) => ({
-              id: effort.id,
-              text: effort.text,
-              createdAt: effort.createdAt.toISOString(),
-            }));
-          const projectOutcomes = outcomeRows
-            .filter((outcome) => outcome.projectId === project.id)
-            .map((outcome) => ({
-              id: outcome.id,
-              type: outcome.type,
-              value: outcome.value,
-              note: outcome.note,
-              createdAt: outcome.createdAt.toISOString(),
-            }));
-          return {
-            id: project.id,
-            name: project.name,
-            description: project.description,
-            nextStep: project.nextStep,
-            details: normalizeDetails(project.details, project.nextStep),
-            deadline: project.deadline,
-            status: project.status,
-            plantVariant: project.plantVariant,
-            createdAt: project.createdAt.toISOString(),
-            completedAt: project.completedAt?.toISOString() ?? null,
-            growthStage: growthStage(projectEfforts.length, project.status === "completed"),
-            efforts: projectEfforts,
-            outcomes: projectOutcomes,
-          };
-        }),
-      };
+      return listProjects(ctx);
   },
 
   createProject(ctx: Context, args: z.infer<typeof contracts.createProject.request>) {
@@ -270,5 +279,34 @@ export const Actions = {
         added += 1;
       }
       return { added };
+  },
+
+  claimAnonymousGarden(ctx: Context, args: z.infer<typeof contracts.claimAnonymousGarden.request>) {
+      const { db, userId } = ctx;
+      const anonymousUserId = args.anonymousUserId.toLowerCase();
+      if (anonymousUserId === userId) throw new Error("Anonymous garden cannot match the account.");
+      const existing = db.select().from(schema.anonymousClaims).where(eq(schema.anonymousClaims.anonymousUserId, anonymousUserId)).get();
+      if (existing) {
+        if (existing.accountUserId === userId) return { status: "already-claimed" as const, migratedProjects: 0 };
+        throw new Error("Anonymous garden has already been claimed.");
+      }
+      const migratedProjects = db.update(schema.projects).set({ userId }).where(eq(schema.projects.userId, anonymousUserId)).returning({ id: schema.projects.id }).all().length;
+      db.update(schema.efforts).set({ userId }).where(eq(schema.efforts.userId, anonymousUserId)).run();
+      db.update(schema.outcomes).set({ userId }).where(eq(schema.outcomes.userId, anonymousUserId)).run();
+      db.insert(schema.anonymousClaims).values({ anonymousUserId, accountUserId: userId }).run();
+      return { status: "claimed" as const, migratedProjects };
+  },
+
+  exportGarden(ctx: Context) {
+      return { version: 1 as const, exportedAt: new Date().toISOString(), email: ctx.email, ...listProjects(ctx) };
+  },
+
+  deletePersonalData(ctx: Context) {
+      const { db, userId } = ctx;
+      db.delete(schema.efforts).where(eq(schema.efforts.userId, userId)).run();
+      db.delete(schema.outcomes).where(eq(schema.outcomes.userId, userId)).run();
+      db.delete(schema.projects).where(eq(schema.projects.userId, userId)).run();
+      db.update(schema.anonymousClaims).set({ accountUserId: null }).where(eq(schema.anonymousClaims.accountUserId, userId)).run();
+      return { ok: true as const };
   },
 };

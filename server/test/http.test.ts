@@ -5,19 +5,28 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { openDatabase } from "../src/db";
 import { apiHandler } from "../src/http";
+import type { Authenticator } from "../src/auth";
+import * as schema from "../src/schema";
 
 let directory: string;
 let database: ReturnType<typeof openDatabase>;
 let handle: ReturnType<typeof apiHandler>;
 let alice: string;
 let bob: string;
+const testAuthenticator: Authenticator = async (request) => {
+  const token = request.headers.get("Authorization")?.replace(/^Bearer /, "");
+  if (token === alice) return { id: alice, email: "alice@example.com" };
+  if (token === bob) return { id: bob, email: "bob@example.com" };
+  return null;
+};
+const testAccountDeletion = { configured: true, delete: async () => true };
 
 beforeEach(() => {
   directory = mkdtempSync(join(tmpdir(), "garden-test-"));
   database = openDatabase(join(directory, "garden.db"));
-  handle = apiHandler(database.db);
   alice = crypto.randomUUID();
   bob = crypto.randomUUID();
+  handle = apiHandler(database.db, testAuthenticator, testAccountDeletion);
 });
 afterEach(() => {
   database.sqlite.close();
@@ -25,7 +34,7 @@ afterEach(() => {
 });
 async function request(action: string, userId: string, args: unknown = {}) {
   return handle(new Request(`http://localhost/api/${action}`, {
-    method: "POST", headers: { "Content-Type": "application/json", "X-User-Id": userId },
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${userId}` },
     body: JSON.stringify(args),
   }));
 }
@@ -40,7 +49,7 @@ async function list(userId: string) {
   return (await response.json()).projects;
 }
 
-describe("anonymous HTTP isolation", () => {
+describe("authenticated HTTP isolation", () => {
   test("fresh identities are empty; projects, efforts and outcomes stay private", async () => {
     expect(await list(alice)).toEqual([]);
     expect(await list(bob)).toEqual([]);
@@ -48,6 +57,12 @@ describe("anonymous HTTP isolation", () => {
     await request("addEffort", alice, { projectId: id, text: "First effort" });
     await request("addOutcome", alice, { projectId: id, type: "Knowledge", value: "Learned", note: null });
     expect(await list(bob)).toEqual([]);
+    const spoofed = await handle(new Request("http://localhost/api/listProjects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${bob}`, "X-User-Id": alice },
+      body: "{}",
+    }));
+    expect((await spoofed.json()).projects).toEqual([]);
     const [project] = await list(alice);
     expect(project.efforts).toHaveLength(1);
     expect(project.outcomes).toHaveLength(1);
@@ -92,19 +107,23 @@ describe("anonymous HTTP isolation", () => {
     expect(await list(bob)).toEqual([]);
   });
 
-  test("identity, method, JSON, schemas and route names are validated", async () => {
-    for (const identity of ["", "not-a-uuid", "legacy-unassigned"]) {
-      expect((await request("listProjects", identity)).status).toBe(401);
+  test("sessions, method, JSON, schemas and route names are validated", async () => {
+    for (const token of ["", "not-a-token", "legacy-unassigned"]) {
+      expect((await request("listProjects", token)).status).toBe(401);
     }
+    const forged = await handle(new Request("http://localhost/api/listProjects", {
+      method: "POST", headers: { "Content-Type": "application/json", "X-User-Id": alice }, body: "{}",
+    }));
+    expect(forged.status).toBe(401);
     expect((await request("createProject", alice, { name: " ", description: "", deadline: "bad" })).status).toBe(400);
     expect((await request("addEffort", alice, { projectId: -1, text: " " })).status).toBe(400);
     expect((await request("constructor", alice)).status).toBe(404);
     expect((await handle(new Request("http://localhost/api/listProjects"))).status).toBe(405);
     expect((await handle(new Request("http://localhost/api/listProjects", {
-      method: "POST", headers: { "X-User-Id": alice, "Content-Type": "application/json" }, body: "{",
+      method: "POST", headers: { Authorization: `Bearer ${alice}`, "Content-Type": "application/json" }, body: "{",
     }))).status).toBe(400);
     expect((await handle(new Request("http://localhost/api/listProjects", {
-      method: "POST", headers: { "X-User-Id": alice }, body: "{}",
+      method: "POST", headers: { Authorization: `Bearer ${alice}` }, body: "{}",
     }))).status).toBe(415);
     expect(await list(alice)).toEqual([]);
   });
@@ -119,6 +138,44 @@ describe("anonymous HTTP isolation", () => {
     expect(a.reduce((n: number, p: { efforts: unknown[] }) => n + p.efforts.length, 0)).toBe(9);
     expect(b.reduce((n: number, p: { outcomes: unknown[] }) => n + p.outcomes.length, 0)).toBe(3);
   });
+});
+
+test("an anonymous garden is claimed atomically once, then exports and deletes with its account", async () => {
+  const anonymousId = crypto.randomUUID();
+  const project = database.db.insert(schema.projects).values({
+    userId: anonymousId,
+    name: "Existing garden",
+    description: "From this browser",
+    plantVariant: 2,
+  }).returning({ id: schema.projects.id }).get();
+  database.db.insert(schema.efforts).values({ userId: anonymousId, projectId: project.id, text: "Old effort" }).run();
+  database.db.insert(schema.outcomes).values({ userId: anonymousId, projectId: project.id, type: "Knowledge", value: "Saved", note: null }).run();
+
+  const claim = await request("claimAnonymousGarden", alice, { anonymousUserId: anonymousId });
+  expect(claim.status).toBe(200);
+  expect(await claim.json()).toEqual({ status: "claimed", migratedProjects: 1 });
+  expect((await request("claimAnonymousGarden", alice, { anonymousUserId: anonymousId })).status).toBe(200);
+  expect((await request("claimAnonymousGarden", bob, { anonymousUserId: anonymousId })).status).toBe(409);
+  expect(await list(bob)).toEqual([]);
+  expect((await list(alice))[0].efforts[0].text).toBe("Old effort");
+
+  const exported = await (await request("exportGarden", alice)).json();
+  expect(exported.email).toBe("alice@example.com");
+  expect(exported.version).toBe(1);
+  expect(exported.projects).toHaveLength(1);
+
+  expect((await request("deletePersonalData", alice, { confirmation: "wrong" })).status).toBe(400);
+  const withoutAdminKey = apiHandler(database.db, testAuthenticator, { configured: false, delete: async () => false });
+  const unavailable = await withoutAdminKey(new Request("http://localhost/api/deletePersonalData", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${alice}` },
+    body: JSON.stringify({ confirmation: "DELETE" }),
+  }));
+  expect(unavailable.status).toBe(503);
+  expect(await list(alice)).toHaveLength(1);
+  expect((await request("deletePersonalData", alice, { confirmation: "DELETE" })).status).toBe(200);
+  expect(await list(alice)).toEqual([]);
+  expect((await request("claimAnonymousGarden", bob, { anonymousUserId: anonymousId })).status).toBe(409);
 });
 
 test("all growth thresholds, completion and dormancy retain their original behavior", async () => {
@@ -144,7 +201,7 @@ test("data and identities survive reopening the database and rerunning migration
   const before = await list(alice);
   database.sqlite.close();
   database = openDatabase(join(directory, "garden.db"));
-  handle = apiHandler(database.db);
+  handle = apiHandler(database.db, testAuthenticator, testAccountDeletion);
   expect(await list(alice)).toEqual(before);
   expect(await list(bob)).toEqual([]);
 });
@@ -159,7 +216,7 @@ test("migration preserves legacy rows without exposing them to new visitors", as
   old.close();
   const migrated = openDatabase(path);
   try {
-    const response = await apiHandler(migrated.db)(new Request("http://localhost/api/listProjects", { method: "POST", headers: { "X-User-Id": alice, "Content-Type": "application/json" }, body: "{}" }));
+    const response = await apiHandler(migrated.db, testAuthenticator, testAccountDeletion)(new Request("http://localhost/api/listProjects", { method: "POST", headers: { Authorization: `Bearer ${alice}`, "Content-Type": "application/json" }, body: "{}" }));
     expect(await response.json()).toEqual({ projects: [] });
     for (const table of ["projects", "efforts", "outcomes"]) {
       expect(migrated.sqlite.query(`SELECT user_id FROM ${table}`).get()).toEqual({ user_id: "legacy-unassigned" });
@@ -182,7 +239,7 @@ test("TODOs credit once, reorder and persist alongside independent project setti
   await update({ kind: "settings", projectType: "recurring", position: { x: .2, y: .6 }, quadrant: "do", inFloat: true, context: "Tests running in Codex" });
   database.sqlite.close();
   database = openDatabase(join(directory, "garden.db"));
-  handle = apiHandler(database.db);
+  handle = apiHandler(database.db, testAuthenticator, testAccountDeletion);
   const [project] = await list(alice);
   expect(project.efforts).toHaveLength(1);
   expect(project.growthStage).toBe("Sprout");

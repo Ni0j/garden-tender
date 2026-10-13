@@ -36,6 +36,13 @@
       "when": 1791820800001,
       "tag": "0005_project_details",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791849600000,
+      "tag": "0006_authenticated_accounts",
+      "breakpoints": true
     }
   ]
 }
