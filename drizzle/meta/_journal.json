@@ -43,6 +43,13 @@
       "when": 1791849600000,
       "tag": "0006_authenticated_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791849600001,
+      "tag": "0007_launch_infrastructure",
+      "breakpoints": true
     }
   ]
 }

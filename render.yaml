@@ -1,12 +1,19 @@
 services:
   - type: web
-    name: project-garden
+    name: project-garden-testing
     runtime: docker
     plan: starter
+    autoDeployTrigger: "off"
     healthCheckPath: /healthz
     envVars:
+      - key: APP_MODE
+        value: testing
+      - key: TESTING_SUPABASE_PROJECT_REF
+        sync: false
+      - key: BACKUP_S3_PREFIX
+        value: garden-testing
       - key: DATABASE_PATH
-        value: /var/data/garden.db
+        value: /var/data/testing/garden.db
       - key: NODE_ENV
         value: production
       - key: SUPABASE_URL
@@ -17,7 +24,19 @@ services:
         sync: false
       - key: APP_ORIGIN
         sync: false
+      - key: PUBLIC_APP_URL
+        sync: false
+      - key: BACKUP_S3_BUCKET
+        sync: false
+      - key: BACKUP_S3_REGION
+        sync: false
+      - key: BACKUP_S3_ACCESS_KEY_ID
+        sync: false
+      - key: BACKUP_S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: ALLOW_LIVE_BILLING
+        value: "false"
     disk:
-      name: garden-data
+      name: garden-testing-data
       mountPath: /var/data
       sizeGB: 1

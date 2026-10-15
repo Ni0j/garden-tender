@@ -74,24 +74,11 @@ describe("authenticated HTTP isolation", () => {
     expect((await list(bob)).map((p: { id: number }) => p.id)).toEqual([bobId]);
   });
 
-  test("completing a next step records effort and advances growth", async () => {
-    const id = await create(alice);
-    expect((await request("setNextStep", alice, { projectId: id, text: "Draft the first page" })).status).toBe(200);
-    expect((await list(alice))[0].nextStep).toBe("Draft the first page");
-    expect((await request("completeNextStep", alice, { projectId: id })).status).toBe(200);
-    const [project] = await list(alice);
-    expect(project.nextStep).toBeNull();
-    expect(project.efforts[0].text).toBe("Draft the first page");
-    expect(project.growthStage).toBe("Sprout");
-  });
-
   test("all project mutations deny guessed foreign IDs without changing either garden", async () => {
     const id = await create(alice);
     for (const [action, args] of [
       ["addEffort", { projectId: id, text: "Intruder" }],
       ["addOutcome", { projectId: id, type: "Other", value: "Intruder", note: null }],
-      ["setNextStep", { projectId: id, text: "Intruder" }],
-      ["completeNextStep", { projectId: id }],
       ["completeProject", { projectId: id }],
       ["archiveProject", { projectId: id }],
     ] as const) {
@@ -140,22 +127,20 @@ describe("authenticated HTTP isolation", () => {
   });
 });
 
-test("an anonymous garden is claimed atomically once, then exports and deletes with its account", async () => {
+test("legacy claiming is disabled; owner exports and deletes their own data", async () => {
   const anonymousId = crypto.randomUUID();
   const project = database.db.insert(schema.projects).values({
-    userId: anonymousId,
+    userId: alice,
     name: "Existing garden",
     description: "From this browser",
     plantVariant: 2,
   }).returning({ id: schema.projects.id }).get();
-  database.db.insert(schema.efforts).values({ userId: anonymousId, projectId: project.id, text: "Old effort" }).run();
-  database.db.insert(schema.outcomes).values({ userId: anonymousId, projectId: project.id, type: "Knowledge", value: "Saved", note: null }).run();
+  database.db.insert(schema.efforts).values({ userId: alice, projectId: project.id, text: "Old effort" }).run();
+  database.db.insert(schema.outcomes).values({ userId: alice, projectId: project.id, type: "Knowledge", value: "Saved", note: null }).run();
 
-  const claim = await request("claimAnonymousGarden", alice, { anonymousUserId: anonymousId });
-  expect(claim.status).toBe(200);
-  expect(await claim.json()).toEqual({ status: "claimed", migratedProjects: 1 });
-  expect((await request("claimAnonymousGarden", alice, { anonymousUserId: anonymousId })).status).toBe(200);
-  expect((await request("claimAnonymousGarden", bob, { anonymousUserId: anonymousId })).status).toBe(409);
+  for (const id of [alice, alice.toUpperCase(), anonymousId]) {
+    expect((await request("claimAnonymousGarden", bob, { anonymousUserId: id })).status).toBe(410);
+  }
   expect(await list(bob)).toEqual([]);
   expect((await list(alice))[0].efforts[0].text).toBe("Old effort");
 
@@ -175,7 +160,7 @@ test("an anonymous garden is claimed atomically once, then exports and deletes w
   expect(await list(alice)).toHaveLength(1);
   expect((await request("deletePersonalData", alice, { confirmation: "DELETE" })).status).toBe(200);
   expect(await list(alice)).toEqual([]);
-  expect((await request("claimAnonymousGarden", bob, { anonymousUserId: anonymousId })).status).toBe(409);
+  expect((await request("claimAnonymousGarden", bob, { anonymousUserId: anonymousId })).status).toBe(410);
 });
 
 test("all growth thresholds, completion and dormancy retain their original behavior", async () => {
@@ -270,4 +255,75 @@ test("existing project details migrate without losing deadlines, notes, steps or
   expect(project.efforts.at(-1).text).toBe("Read a chapter");
   expect(project.details.todos.filter((todo: {done: boolean}) => !todo.done)).toHaveLength(0);
   expect(project.details.context).toBe(legacy.context);
+});
+
+test("only canonical TODO completion credits effort; removed aliases cannot double credit", async () => {
+  const response = await request("createProject", alice, { name: "Steps", description: "Canonical", deadline: null, nextStep: "Do once" });
+  const id = (await response.json()).id;
+  for (const action of ["setNextStep", "completeNextStep"]) expect((await request(action, alice, { projectId: id, text: "Do once" })).status).toBe(404);
+  for (const done of [true, true, false, true]) await request("updateProject", alice, { projectId: id, change: { kind: "toggleTodo", id: "legacy-next-step", done } });
+  expect((await list(alice))[0].efforts).toHaveLength(1);
+});
+
+test("completion is idempotent; archive preserves growth and rejects mutations", async () => {
+  const id = await create(alice);
+  await request("completeProject", alice, { projectId: id });
+  const before = (await list(alice))[0];
+  await request("completeProject", alice, { projectId: id });
+  expect((await list(alice))[0].completedAt).toBe(before.completedAt);
+  await request("archiveProject", alice, { projectId: id });
+  expect((await list(alice))[0].growthStage).toBe("Bloom");
+  expect((await request("completeProject", alice, { projectId: id })).status).toBe(409);
+  expect((await request("updateProject", alice, { projectId: id, change: { kind: "settings", context: "No" } })).status).toBe(409);
+});
+
+test("calendar date validation rejects impossible dates and historical rendering is safe", async () => {
+  const { displayDate } = await import("../../shared/dates");
+  for (const deadline of ["2026-99-99", "2026-02-29", "2026-04-31"]) {
+    expect((await request("createProject", alice, { name: "Date", description: "Check", deadline })).status).toBe(400);
+    expect(displayDate(deadline)).toBe("Unknown date");
+  }
+  expect((await request("createProject", alice, { name: "Date", description: "Check", deadline: "2028-02-29" })).status).toBe(200);
+});
+
+test("initial-only migration preserves entry data and repairs duplicate migration timestamps", () => {
+  const path = join(directory, "initial.db");
+  const old = new Database(path);
+  old.exec(readFileSync(new URL("../../drizzle/0001_initial.sql", import.meta.url), "utf8"));
+  old.exec("INSERT INTO entries(text, created_at) VALUES ('Retain me', 1); CREATE TABLE __drizzle_migrations (id SERIAL PRIMARY KEY, hash TEXT NOT NULL, created_at NUMERIC); INSERT INTO __drizzle_migrations(hash,created_at) VALUES ('initial',1790654550354)");
+  old.close();
+  const repaired = openDatabase(path);
+  expect(repaired.sqlite.query("SELECT text FROM legacy_entries_before_projects").get()).toEqual({ text: "Retain me" });
+  expect(repaired.sqlite.query("SELECT COUNT(*) AS n FROM projects").get()).toEqual({ n: 0 });
+  repaired.sqlite.close();
+  const reopened = openDatabase(path); reopened.sqlite.close();
+});
+
+test("Free capacity is enforced atomically on create, samples and restoration", async () => {
+  const ids = await Promise.all(Array.from({ length: 5 }, () => request("createProject", alice, { name: "Limit", description: "Check", deadline: null })));
+  expect(ids.filter(r => r.status === 200)).toHaveLength(3);
+  expect(ids.filter(r => r.status === 409)).toHaveLength(2);
+  expect((await request("seedSampleGarden", alice)).status).toBe(409);
+  expect(await list(alice)).toHaveLength(3);
+  const id = (await list(alice))[0].id;
+  await request("archiveProject", alice, { projectId: id });
+  await create(alice);
+  expect((await request("restoreProject", alice, { projectId: id })).status).toBe(409);
+  expect((await request("restoreProject", bob, { projectId: id })).status).toBe(404);
+});
+
+test("verified Plus allows unlimited plants; expiry preserves history and keeps oldest three active", async () => {
+  database.db.insert(schema.subscriptions).values({ id: "sub_test", userId: alice, provider: "test", status: "active", priceId: "test", paidThrough: Date.now() + 60_000, updatedAt: Date.now() }).run();
+  for (let i = 0; i < 6; i++) { const id = await create(alice); await request("addEffort", alice, { projectId: id, text: "Preserved" }); }
+  expect((await list(alice)).filter((p: {status:string}) => p.status === "active")).toHaveLength(6);
+  database.sqlite.query("UPDATE subscriptions SET paid_through = 1").run();
+  const after = await list(alice);
+  expect(after).toHaveLength(6);
+  expect(after.filter((p: {status:string}) => p.status === "active")).toHaveLength(3);
+  expect(after.filter((p: {archiveReason:string}) => p.archiveReason === "plan-limit")).toHaveLength(3);
+  expect(after.every((p: {efforts:unknown[]}) => p.efforts.length === 1)).toBe(true);
+  const active = after.find((p: {status:string}) => p.status === "active");
+  const paused = after.find((p: {archiveReason:string}) => p.archiveReason === "plan-limit");
+  await request("archiveProject", alice, { projectId: active.id });
+  expect((await request("restoreProject", alice, { projectId: paused.id })).status).toBe(200);
 });

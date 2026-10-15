@@ -1,8 +1,14 @@
+import { useModalFocus } from "./useModalFocus";
+import { PrivacyNotice } from "./PrivacyNotice";
+import { BillingPanel } from "./BillingPanel";
+import type { Account } from "../../shared/account";
+import { displayDate } from "../../shared/dates";
 import { Matrix } from "./GardenViews";
+import { ProjectList } from "./ProjectList";
 import { ProjectWork } from "./ProjectWork";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api, clearAnonymousId, existingAnonymousId } from "./api";
+import { api, accountRequest, existingAnonymousId } from "./api";
 import { Plant, type Project } from "./Plant";
 import { FloatGarden, ViewChoice, type ViewMode } from "./FloatGarden";
 
@@ -17,7 +23,7 @@ const FILTERS: Array<{ value: Filter; label: string }> = [
 const OUTCOME_TYPES = ["Payment", "New client", "Job offer", "Portfolio piece", "New connection", "Knowledge", "Other"];
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", year: "numeric" }).format(new Date(value));
+  return displayDate(value);
 }
 
 function nextMilestone(count: number): string {
@@ -65,6 +71,7 @@ function GardenCard({ project, onOpen, animate }: { project: Project; onOpen: ()
 }
 
 function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
+  useModalFocus(onClose);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [nextStep, setNextStep] = useState("");
@@ -106,7 +113,7 @@ function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCre
             Deadline <span>optional — grow at your own pace</span>
             <input type="date" value={deadline} onChange={(event) => setDeadline(event.target.value)} />
           </label>
-          {create.error && <p className="form-error">Could not plant this seed. Try again.</p>}
+          {create.error && <p className="form-error">{create.error.message}</p>}
           <button className="primary-button" type="submit" disabled={create.isPending}>{create.isPending ? "Planting…" : "Create project"}</button>
         </form>
       </div>
@@ -115,6 +122,7 @@ function CreateProjectPanel({ onClose, onCreated }: { onClose: () => void; onCre
 }
 
 function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project: Project; onClose: () => void; onChanged: () => void; setAnimating: (value: boolean) => void }) {
+  useModalFocus(onClose);
   const [effortText, setEffortText] = useState("");
   const [outcomeType, setOutcomeType] = useState(OUTCOME_TYPES[0] ?? "Other");
   const [outcomeValue, setOutcomeValue] = useState("");
@@ -163,10 +171,11 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
     onMutate: () => setMessage(null),
     onError: () => setMessage("Could not archive this project. Try again."),
     onSuccess: () => {
-      setMessage("Project moved into dormancy.");
+      setMessage("Project archived. Steps and history are kept; restore it whenever you are ready.");
       onChanged();
     },
   });
+  const restore = useMutation({ mutationFn: () => api.restoreProject({ projectId: project.id }), onSuccess: () => { setMessage("Plant restored."); onChanged(); }, onError: (error) => setMessage(error.message) });
   const readOnly = project.status === "archived";
 
   return (
@@ -177,7 +186,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
           <Plant project={project} large />
           <div className="stage-stamp">
             <span>{project.growthStage}</span>
-            <small>{readOnly ? "Dormant" : nextMilestone(project.efforts.length)}</small>
+            <small>{readOnly ? "Dormant" : project.completedAt ? "Completed" : nextMilestone(project.efforts.length)}</small>
           </div>
         </section>
         <section className="detail-content">
@@ -187,7 +196,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
             <p className="description">{project.description}</p>
             <div className="date-row">
               <span>Planted {formatDate(project.createdAt)}</span>
-              {project.deadline && <span>Due {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(new Date(`${project.deadline}T00:00:00`))}</span>}
+              {project.deadline && <span>Due {displayDate(project.deadline)}</span>}
             </div>
           </header>
 
@@ -222,12 +231,12 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
             )}
           </details>
 
-          <div className="outcome-section">
+          <details className="outcome-section"><summary>Outcomes ({project.outcomes.length})</summary>
             <div className="section-heading">
               <h3>Outcomes</h3>
               {!readOnly && <button className="text-button" onClick={() => setShowOutcome((value) => !value)}>{showOutcome ? "Cancel" : "+ Add outcome"}</button>}
             </div>
-            {showOutcome && (
+            {showOutcome && !readOnly && (
               <form className="outcome-form" onSubmit={(event) => { event.preventDefault(); outcome.mutate(); }}>
                 <label>Type<select value={outcomeType} onChange={(event) => setOutcomeType(event.target.value)}>{OUTCOME_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
                 <label>Value<input value={outcomeValue} onChange={(event) => setOutcomeValue(event.target.value)} placeholder="$320, one client, a new skill…" maxLength={80} required /></label>
@@ -240,8 +249,9 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
                 {project.outcomes.map((item) => <li key={item.id}><span className="large-fruit" /><div><strong>{item.value}</strong><p>{item.type}{item.note ? ` · ${item.note}` : ""}</p></div></li>)}
               </ul>
             )}
-          </div>
+          </details>
 
+          {readOnly && <div className="project-actions"><button className="secondary-button" disabled={restore.isPending} onClick={() => restore.mutate()}>Restore project</button></div>}
           {!readOnly && (
             <div className="project-actions">
               {project.status === "active" && project.details.projectType === "ongoing" && <button className="complete-button" onClick={() => complete.mutate()} disabled={complete.isPending}>Mark complete</button>}
@@ -256,9 +266,8 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
 
 export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignOut: (localOnly?: boolean) => Promise<unknown> }) {
   const queryClient = useQueryClient();
-  const [anonymousId, setAnonymousId] = useState(existingAnonymousId);
+  const [anonymousId] = useState(existingAnonymousId);
   const [migrationDismissed, setMigrationDismissed] = useState(false);
-  const [accountMessage, setAccountMessage] = useState<string | null>(null);
   const [view, setView] = useState<ViewMode>(() => {
     try { const saved = localStorage.getItem("project-garden.view"); return saved === "minimal" || saved === "matrix" ? saved : "plant"; }
     catch { return "plant"; }
@@ -267,9 +276,25 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
     setView(next);
     try { localStorage.setItem("project-garden.view", next); } catch { /* Keep the current session usable. */ }
   };
+  const [gardenMessage, setGardenMessage] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [filter, setFilter] = useState<Filter>("active");
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [showBilling, setShowBilling] = useState(() => new URLSearchParams(window.location.search).has("billing"));
+  const [billingMessage, setBillingMessage] = useState<string | null>(null);
+  useEffect(() => {
+    const result = new URLSearchParams(window.location.search).get("billing");
+    if (!result) return;
+    const url = new URL(window.location.href); url.searchParams.delete("billing"); window.history.replaceState(null, "", url);
+    if (result === "canceled") { setBillingMessage("Checkout canceled. Your current plan is unchanged."); return; }
+    setBillingMessage("Checking your payment with the billing service…");
+    void accountRequest<Account>("billing/refresh").then(account => {
+      setBillingMessage(account.plan === "plus" ? "Garden Plus is active. Thank you." : "Your payment has not been confirmed yet. Check payment status in billing shortly.");
+      void queryClient.invalidateQueries();
+    }).catch(() => setBillingMessage("Payment verification is temporarily unavailable. Use Check payment status in billing to retry."));
+  }, [queryClient]);
+  const accountQuery = useQuery({ queryKey: ["account"], queryFn: () => accountRequest<Account>("account"), refetchInterval: 60_000 });
+  const account = accountQuery.data;
   const [creating, setCreating] = useState(false);
   const [animatingId, setAnimatingId] = useState<number | null>(null);
   const projectsQuery = useQuery({ queryKey: ["projects"], queryFn: () => api.listProjects({}) });
@@ -281,18 +306,9 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
     completed: projects.filter((project) => project.status === "completed").length,
     archived: projects.filter((project) => project.status === "archived").length,
   }), [projects]);
-  const refresh = () => { void queryClient.invalidateQueries({ queryKey: ["projects"] }); };
+  const refresh = () => { void queryClient.invalidateQueries(); };
 
   const update = useMutation({ mutationFn: api.updateProject, onSuccess: refresh });
-  const migrate = useMutation({
-    mutationFn: (id: string) => api.claimAnonymousGarden({ anonymousUserId: id }),
-    onSuccess: (result) => {
-      clearAnonymousId();
-      setAnonymousId(null);
-      setAccountMessage(result.migratedProjects > 0 ? `Moved ${result.migratedProjects} project${result.migratedProjects === 1 ? "" : "s"} into this account.` : "This browser did not have any projects to move.");
-      refresh();
-    },
-  });
   const exportData = useMutation({
     mutationFn: () => api.exportGarden({}),
     onSuccess: (data) => {
@@ -304,8 +320,10 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
       URL.revokeObjectURL(url);
     },
   });
+  const signOut = useMutation({ mutationFn: () => onSignOut() });
   const deleteData = useMutation({
     mutationFn: () => api.deletePersonalData({ confirmation: "DELETE" }),
+    onSettled: refresh,
     onSuccess: async () => {
       queryClient.clear();
       await onSignOut(true);
@@ -318,7 +336,7 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
 
   return (
     <div className="app-shell">
-      <main>
+      <main inert={creating || Boolean(selected) || (showBilling && Boolean(account) && !account?.testing)}>
         <header className="garden-intro">
           <div>
             <p className="overline">Tended by effort</p>
@@ -330,31 +348,34 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
               <summary aria-label="Account menu">Account</summary>
               <div>
                 <p>{accountEmail}</p>
-                {anonymousId && <button onClick={() => { setMigrationDismissed(false); }}>Import this browser’s old garden</button>}
+                {account && !account.testing && <button onClick={() => setShowBilling(true)}>{account.plan === "plus" ? "Garden Plus · Manage billing" : "Garden Free · Explore Plus"}</button>}
+                {anonymousId && <button onClick={() => { setMigrationDismissed(false); }}>About this browser’s old garden</button>}
                 <button onClick={() => exportData.mutate()} disabled={exportData.isPending}>{exportData.isPending ? "Preparing export…" : "Export garden data"}</button>
-                <button onClick={() => { void onSignOut(); }}>Sign out</button>
+                <button disabled={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</button>
                 <button className="danger-action" onClick={permanentlyDeleteData} disabled={deleteData.isPending}>{deleteData.isPending ? "Deleting…" : "Delete account and garden data"}</button>
-                {(exportData.error || deleteData.error) && <p className="form-error">That account action could not be completed.</p>}
+                {(exportData.error || deleteData.error || signOut.error) && <p className="form-error">{(exportData.error || deleteData.error || signOut.error)?.message}</p>}
               </div>
             </details>
-            <button className="add-project" onClick={() => setCreating(true)}><span>＋</span> Add a plant</button>
+            <button className="add-project" onClick={() => account && !account.canCreate ? setShowBilling(true) : setCreating(true)}><span>＋</span> Add a plant</button>
           </div>
         </header>
 
         {anonymousId && !migrationDismissed && (
           <section className="migration-notice" aria-labelledby="migration-title">
-            <div><h2 id="migration-title">Bring your existing garden with you?</h2><p>This browser has an older anonymous garden. Move it into {accountEmail} so it is available on every device.</p></div>
-            <div className="migration-actions">
-              <button className="secondary-button" onClick={() => migrate.mutate(anonymousId)} disabled={migrate.isPending}>{migrate.isPending ? "Moving…" : "Move my garden"}</button>
-              <button className="text-button" onClick={() => setMigrationDismissed(true)} disabled={migrate.isPending}>Not now</button>
-            </div>
-            {migrate.error && <p className="form-error" role="alert">This garden could not be moved. It may already belong to another account.</p>}
+            <div><h2 id="migration-title">Your older garden is preserved</h2><p>This browser has an older garden. For your privacy, importing it now requires verified support assistance. Its data has not been deleted.</p></div>
+            <div className="migration-actions"><button className="text-button" onClick={() => setMigrationDismissed(true)}>Dismiss</button></div>
           </section>
         )}
-        {accountMessage && <p className="notice account-notice" role="status">{accountMessage}</p>}
 
+        {gardenMessage && <p className="notice" role="status">{gardenMessage}</p>}
+        {billingMessage && <p className="notice" role="status">{billingMessage}</p>}
+        {account && !account.testing && <p className="notice">{account.plan === "plus" ? "Garden Plus · Unlimited active plants" : `Garden Free · ${account.activeCount} of 3 active plants`} · <button className="text-button" onClick={() => setShowBilling(true)}>{account.plan === "plus" ? "Manage billing" : "Explore Plus"}</button></p>}
+        {account && !account.testing && account.pausedCount > 0 && <p className="notice" role="status">{account.pausedCount} extra plant{account.pausedCount === 1 ? " is" : "s are"} safely archived after returning to Free. All history is preserved. Archive a growing plant to make room, then restore one from Archived. <button className="text-button" onClick={() => setFilter("archived")}>View Archived</button></p>}
+        {account && !["none", "complete"].includes(account.deletionState) && <p className="form-error" role="alert">Account deletion is pending. Changes are locked. Use Account → Delete account to retry; the server also retries automatically.</p>}
+        {!account?.testing && account?.paymentPastDue && <p className="form-error" role="alert">Your subscription payment needs attention. <button className="text-button" onClick={() => setShowBilling(true)}>Manage billing</button></p>}
+        {accountQuery.error && <p className="form-error" role="alert">Account status could not be loaded. <button className="text-button" onClick={() => void accountQuery.refetch()}>Retry</button></p>}
         <div className="garden-tools">
-          <ViewChoice view={view} onChange={changeView} />
+          {filter !== "archived" && <ViewChoice view={view} onChange={changeView} />}
           <label className="type-filter">Show <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}><option value="all">All projects</option><option value="recurring">Recurring activities</option><option value="ongoing">Other projects</option></select></label>
         </div>
 
@@ -362,7 +383,7 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
 
         <nav className="filter-row" aria-label="Project status filters">
           {FILTERS.map((item) => (
-            <button key={item.value} className={filter === item.value ? "active" : ""} onClick={() => setFilter(item.value)}>
+            <button key={item.value} aria-pressed={filter === item.value} className={filter === item.value ? "active" : ""} onClick={() => setFilter(item.value)}>
               {item.label}<span>{counts[item.value]}</span>
             </button>
           ))}
@@ -375,20 +396,13 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
         ) : visibleProjects.length === 0 ? (
           <div className="empty-garden">
             <div className="empty-seed" />
-            <h2>{typeFilter !== "all" ? "No projects match this view." : filter === "active" ? "Plant the first seed." : filter === "completed" ? "No projects have bloomed yet." : "No plants are dormant."}</h2>
-            <p>{filter === "active" ? "Give something you care about a place to grow." : "This bed will hold the projects that reach this season."}</p>
-            {filter === "active" && <button onClick={() => setCreating(true)}>Plant a project</button>}
+            <h2>{typeFilter !== "all" ? "No projects match this view." : filter === "active" ? (projects.length ? "Nothing growing right now." : "Plant the first seed.") : filter === "completed" ? "No projects have bloomed yet." : "No plants are dormant."}</h2>
+            <p>{filter === "active" ? "Give something you care about a place to grow." : filter === "archived" ? "Archive a project to pause it without losing its steps or history. Restore it whenever you are ready." : "Completed projects will appear here."}</p>
+            {typeFilter !== "all" && <button onClick={() => setTypeFilter("all")}>Show all projects</button>}
+            {filter === "active" && typeFilter === "all" && <button onClick={() => account && !account.canCreate ? setShowBilling(true) : setCreating(true)}>Plant a project</button>}
           </div>
-        ) : view === "minimal" ? (
-          <section className="minimal-garden" aria-label="Project dashboard">
-            {visibleProjects.map((project) => (
-              <button className="project-row" key={project.id} onClick={() => setSelectedId(project.id)}>
-                <span><strong>{project.name}</strong><small>{project.growthStage}</small></span>
-                <span>{project.efforts.length} effort{project.efforts.length === 1 ? "" : "s"}<small>{project.outcomes.length} outcomes</small></span>
-                <span aria-hidden="true">↗</span>
-              </button>
-            ))}
-          </section>
+        ) : view === "minimal" || filter === "archived" ? (
+          <ProjectList key={filter} projects={visibleProjects} archived={filter === "archived"} onOpen={setSelectedId} onRestored={project => { setGardenMessage(`${project.name} restored. Its steps and history are ready.`); setFilter(project.completedAt ? "completed" : "active"); refresh(); }} />
         ) : view === "matrix" ? (
           <Matrix projects={visibleProjects} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />
         ) : (
@@ -397,9 +411,11 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
             <div className="plant-grid">{visibleProjects.map(project => <GardenCard key={project.id} project={project} onOpen={() => setSelectedId(project.id)} animate={animatingId === project.id} />)}</div>
           </section>
         )}
+        <PrivacyNotice />
         <FloatGarden projects={projects} onOpen={setSelectedId} onChange={(id, inFloat) => update.mutate({ projectId: id, change: { kind: "settings", inFloat } })} busy={update.isPending} />
       </main>
 
+      {showBilling && account && !account.testing && <BillingPanel account={account} onClose={() => setShowBilling(false)} />}
       {creating && <CreateProjectPanel onClose={() => setCreating(false)} onCreated={(id) => { setCreating(false); setSelectedId(id); refresh(); }} />}
       {selected && <ProjectDetail project={selected} onClose={() => setSelectedId(null)} onChanged={refresh} setAnimating={(value) => setAnimatingId(value ? selected.id : null)} />}
     </div>

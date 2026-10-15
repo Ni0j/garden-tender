@@ -21,6 +21,7 @@ export function normalizeDetails(details: (Partial<Omit<Details, "projectType">>
 export const changeShape = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("addTodo"), text: z.string().trim().min(1).max(240) }),
   z.object({ kind: z.literal("editTodo"), id: z.string(), text: z.string().trim().min(1).max(240) }),
+  z.object({ kind: z.literal("removeTodo"), id: z.string() }),
   z.object({ kind: z.literal("toggleTodo"), id: z.string(), done: z.boolean() }),
   z.object({ kind: z.literal("moveTodo"), id: z.string(), direction: z.enum(["up", "down"]) }),
   z.object({ kind: z.literal("settings"), projectType: detailsShape.shape.projectType.optional(), inFloat: z.boolean().optional(), context: z.string().max(500).optional(), position: detailsShape.shape.position.optional(), matrixPosition: detailsShape.shape.matrixPosition.optional(), quadrant: detailsShape.shape.quadrant.optional() }),
@@ -31,6 +32,7 @@ export function changeDetails(details: Details, change: z.infer<typeof changeSha
   const index = details.todos.findIndex(todo => todo.id === change.id);
   const todo = details.todos[index];
   if (!todo) throw new Error("TODO not found.");
+  if (change.kind === "removeTodo") { details.todos.splice(index, 1); return null; }
   if (change.kind === "editTodo") todo.text = change.text;
   if (change.kind === "moveTodo") {
     const direction = change.direction === "up" ? -1 : 1;

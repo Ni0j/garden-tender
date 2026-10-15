@@ -1,0 +1,22 @@
+services:
+  garden-testing:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    env_file: .env.testing
+    environment:
+      NODE_ENV: production
+      APP_MODE: testing
+      DATABASE_PATH: /var/data/testing/garden.db
+      BACKUP_S3_PREFIX: garden-testing
+    volumes:
+      - garden-testing-data:/var/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/healthz'); process.exit(r.ok ? 0 : 1)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+volumes:
+  garden-testing-data:

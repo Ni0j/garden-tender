@@ -3,7 +3,7 @@ import { api, type ApiResponse } from "./api";
 export type Project = ApiResponse<typeof api, "listProjects">["projects"][number];
 
 export function Plant({ project, large = false, animate = false }: { project: Project; large?: boolean; animate?: boolean }) {
-  const count = project.status === "completed" ? Math.max(15, project.efforts.length) : project.efforts.length;
+  const count = (project.completedAt !== null || project.status === "completed") ? Math.max(15, project.efforts.length) : project.efforts.length;
   const archived = project.status === "archived";
   const blooming = project.status === "completed" || count >= 15;
   const height = count === 0 ? 0 : 30 + Math.min(count, 15) * 7.5;

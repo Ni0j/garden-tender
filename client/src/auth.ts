@@ -1,26 +1,12 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-type PublicAuthConfiguration = { url: string; publishableKey: string; configured: boolean };
-
-const baseUrl = __API_BASE_URL__.replace(/\/$/, "");
 let clientPromise: Promise<SupabaseClient> | null = null;
 
-export function apiUrl(path: string): string {
-  return `${baseUrl}${path}`;
-}
-
 export function getAuthClient(): Promise<SupabaseClient> {
-  clientPromise ??= fetch(apiUrl("/api/auth/config"), { cache: "no-store" })
-    .then(async (response) => {
-      if (!response.ok) throw new Error("Authentication configuration could not be loaded.");
-      return response.json() as Promise<PublicAuthConfiguration>;
-    })
-    .then((config) => {
-      if (!config.configured) throw new Error("Authentication has not been configured for this deployment.");
-      return createClient(config.url, config.publishableKey, {
-        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-      });
-    });
+  if (!__SUPABASE_URL__ || !__SUPABASE_PUBLISHABLE_KEY__) return Promise.reject(new Error("Authentication has not been configured for this deployment."));
+  clientPromise ??= Promise.resolve(createClient(__SUPABASE_URL__, __SUPABASE_PUBLISHABLE_KEY__, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+  }));
   return clientPromise;
 }
 

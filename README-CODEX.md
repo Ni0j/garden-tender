@@ -6,7 +6,7 @@ Seed → Sprout → Young plant → Growing plant → Mature plant → Bloom.
 ## Local setup
 
 Install Bun **1.3.10** and put `bun` on your PATH. Run these commands from
-`project-garden-source` (the directory containing `package.json`):
+`gardener` (the Git repository containing `package.json`):
 
 ```sh
 bun install --frozen-lockfile
@@ -32,7 +32,7 @@ Environment variables (also shown in `.env.example`):
 
 For example, `PORT=4173 bun run start`. Keep the same `DATABASE_PATH` when
 restarting to retain data. Bun can load a local `.env`; it is excluded from
-source and Docker build context. `GET /healthz` returns `{"ok":true}`.
+source and Docker build context. `GET /healthz` reports readiness and backup/billing/deletion maintenance status. Missing production configuration fails startup.
 
 ## Stack and source layout
 
@@ -52,6 +52,8 @@ React Query `QueryClient`.
 
 ## Accounts, authorization, and the API
 
+See [the V1.0 setup and release runbook](docs/LAUNCH.md) for all required Stripe, SMTP, backup and production variables, test-mode acceptance, and the explicit deployment approval boundary.
+
 Supabase Auth provides passwordless email codes. Its browser SDK persists and
 refreshes the session in local storage, so reloads and later visits remain signed
 in. Every data request sends the access token as `Authorization: Bearer <token>`.
@@ -60,7 +62,7 @@ endpoint and derives `user_id` from the verified user response. `X-User-Id` is
 not accepted as authentication.
 
 Actions: `listProjects`, `createProject`, `addEffort`, `addOutcome`,
-`completeProject`, `archiveProject`, `seedSampleGarden`, `claimAnonymousGarden`,
+`completeProject`, `archiveProject`, `restoreProject`, `seedSampleGarden`,
 `exportGarden`, and `deletePersonalData`.
 
 Projects, efforts, and outcomes are scoped by `user_id`; mutations check project
@@ -68,17 +70,9 @@ ownership on the server. Samples are opt-in and separate for each account. Migra
 `0003_user_isolation.sql` preserves older rows under `legacy-unassigned`, which
 cannot be claimed by a browser UUID, keeping them hidden from new visitors.
 
-Existing browser UUIDs are used only by the authenticated
-`claimAnonymousGarden` migration. After sign-in, the UI offers to move that
-browser's older garden into the account. The move updates projects, efforts, and
-outcomes inside one SQLite transaction and records the UUID in
-`anonymous_claims`, preventing another account from claiming it later. Deleting
-account data leaves a claim tombstone but removes the account association.
+Legacy anonymous self-service import is disabled: UUID possession cannot establish ownership. Existing rows and claim tombstones are preserved for independently verified operator recovery. No public ownership-transfer endpoint remains functional.
 
-The account menu downloads a JSON export and can permanently delete the signed-in
-account. Deletion removes projects, efforts, and outcomes, tombstones any prior
-anonymous claim, and then removes the Supabase Auth user through the server-only
-Admin API.
+Account deletion is coordinated and retryable: it records a durable intent, stops Stripe billing, removes Supabase authentication, and only then purges garden data. Pending accounts cannot write. Server maintenance resumes unfinished deletion without a browser session.
 
 Growth stages retain the original effort thresholds: 0 / 1 / 3 / 6 / 10 / 15.
 Completing a project makes it Bloom; archived projects are dormant.
@@ -91,7 +85,7 @@ bun test
 ```
 
 The backend tests cover authenticated isolation, forged-header rejection, foreign
-project mutations, atomic one-time anonymous claiming, export, deletion, request
+project mutations, rejection of anonymous claiming, export, deletion, request
 validation, per-user sample gardens, growth stages, persistence on database reopen,
 and legacy migration. They use temporary databases rather than the local garden.
 
@@ -113,12 +107,12 @@ No hosted Postgres is required for this configuration.
 
 The multi-stage Dockerfile installs locked dependencies, builds both bundles,
 and copies the bundles and migrations into a Bun 1.3.10 runtime image.
-With Docker installed and running, local verification commands are:
+With Docker installed and running, supply an isolated staging environment file containing the required settings when testing the production image. Never mount an existing user database for a test. Example commands are:
 
 ```sh
 docker build -t project-garden:local .
 docker run --name project-garden-local -p 3000:3000 \
-  -v project-garden-data:/var/data project-garden:local
+  --env-file .env.staging -v project-garden-data:/var/data project-garden:local
 ```
 
 In another terminal, `docker restart project-garden-local` checks restart
@@ -126,7 +120,7 @@ persistence. The named volume retains data when the container is removed;
 do not delete it if you want to keep the garden. No external deployment is
 performed by these local commands. Render deployment itself has not been verified.
 
-The repository can deploy the client to **GitHub Pages** through
+The repository can manually deploy the client to **GitHub Pages** through
 `.github/workflows/pages.yml`, but Pages cannot run the Bun/SQLite server. Set the
 repository variable `PUBLIC_API_BASE_URL` to the Render service URL and set
 `APP_ORIGIN` on Render to the exact Pages origin. Without those values the Pages
@@ -168,3 +162,11 @@ Removing a companion never removes the project.
 
 All deployed clients now use the authenticated Bun API. There is no separate
 browser-only garden implementation.
+
+## Garden Free and Plus
+
+Free includes 3 active plants and every core feature, with unlimited efforts, outcomes, full growth and history. Garden Plus only removes the active-plant limit: USD $1.49/month or $14.99/year. Checkout and Portal are server-created; raw-body webhook verification, reconciliation and paid-through checks control entitlement. Live billing is disabled by default.
+
+When Plus expires above 3 active plants, the oldest three remain active and extras are safely archived with an explicit notice. Archive a growing plant to free a slot, then restore a plant from Archived. History is never deleted on downgrade.
+
+`bun run check` runs all typechecks, tests and builds. `bun run test:ui` runs a clearly synthetic in-memory browser harness (code 123456) without external email or charges. See [verification results](docs/VERIFICATION.md) and [remaining external setup](docs/LAUNCH.md).

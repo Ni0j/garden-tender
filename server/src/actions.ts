@@ -1,3 +1,6 @@
+import { recordEvent } from "./analytics";
+import { requireCapacity } from "./entitlements";
+import { calendarDate } from "../../shared/dates";
 import { detailsShape, initialDetails, normalizeDetails, changeShape, changeDetails } from "../../shared/project";
 import { z } from "zod";
 import type { GardenDatabase } from "./db";
@@ -25,6 +28,7 @@ const projectShape = z.object({
   name: z.string(),
   description: z.string(),
   nextStep: z.string().nullable(),
+  archiveReason: z.string().nullable(),
   details: detailsShape,
   deadline: z.string().nullable(),
   status: projectStatus,
@@ -54,10 +58,8 @@ export const contracts = {
       description: z.string().trim().min(1).max(300),
       nextStep: z.string().trim().max(240).nullable().optional(),
       projectType: z.enum(["ongoing", "one-time", "recurring"]).optional(),
-      deadline: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+      deadline: calendarDate.nullable(),
     }), response: z.object({ id: z.number() }) },
-  setNextStep: { request: z.object({ projectId: z.number().int().positive(), text: z.string().trim().min(1).max(240) }), response: okResponse },
-  completeNextStep: { request: z.object({ projectId: z.number().int().positive() }), response: okResponse },
   addEffort: { request: z.object({ projectId: z.number().int().positive(), text: z.string().trim().min(1).max(240) }), response: okResponse },
   addOutcome: { request: z.object({
       projectId: z.number().int().positive(),
@@ -66,6 +68,7 @@ export const contracts = {
       note: z.string().trim().max(200).nullable(),
     }), response: okResponse },
   completeProject: { request: z.object({ projectId: z.number().int().positive() }), response: okResponse },
+  restoreProject: { request: z.object({ projectId: z.number().int().positive() }), response: okResponse },
   archiveProject: { request: z.object({ projectId: z.number().int().positive() }), response: okResponse },
   seedSampleGarden: { request: z.object({}), response: z.object({ added: z.number() }) },
   claimAnonymousGarden: {
@@ -105,13 +108,14 @@ function listProjects(ctx: Context) {
         name: project.name,
         description: project.description,
         nextStep: project.nextStep,
+        archiveReason: project.archiveReason,
         details: normalizeDetails(project.details, project.nextStep),
         deadline: project.deadline,
         status: project.status,
         plantVariant: project.plantVariant,
         createdAt: project.createdAt.toISOString(),
         completedAt: project.completedAt?.toISOString() ?? null,
-        growthStage: growthStage(projectEfforts.length, project.status === "completed"),
+        growthStage: growthStage(projectEfforts.length, project.completedAt !== null || project.status === "completed"),
         efforts: projectEfforts,
         outcomes: projectOutcomes,
       };
@@ -125,10 +129,10 @@ export const Actions = {
     const where = and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId));
     const project = db.select().from(schema.projects).where(where).get();
     if (!project) throw new Error("Project not found.");
-    if (project.status === "archived" && args.change.kind !== "settings") throw new Error("Archived projects are dormant.");
+    if (project.status === "archived") throw new Error("Archived projects are dormant.");
     const details = normalizeDetails(project.details, project.nextStep);
     const effort = changeDetails(details, args.change);
-    if (effort) db.insert(schema.efforts).values({ userId, projectId: project.id, text: effort }).run();
+    if (effort) { db.insert(schema.efforts).values({ userId, projectId: project.id, text: effort }).run(); recordEvent(db, "effort_created"); }
     db.update(schema.projects).set({ details, nextStep: null }).where(where).run();
     return { ok: true as const };
   },
@@ -138,18 +142,20 @@ export const Actions = {
 
   createProject(ctx: Context, args: z.infer<typeof contracts.createProject.request>) {
       const { db, userId } = ctx;
+      requireCapacity(db, userId);
       const latest = db.select({ id: schema.projects.id }).from(schema.projects).where(eq(schema.projects.userId, userId)).orderBy(desc(schema.projects.id)).limit(1).all();
       const nextVariant = ((latest[0]?.id ?? 0) + 1) % 6;
       const rows = db.insert(schema.projects).values({ userId,
         name: args.name,
         description: args.description,
-        nextStep: args.nextStep ?? null,
+        nextStep: null,
         deadline: args.deadline,
         details: { ...initialDetails(args.nextStep), projectType: args.projectType === "recurring" ? "recurring" : "ongoing" },
         plantVariant: nextVariant,
       }).returning({ id: schema.projects.id }).all();
       const inserted = rows[0];
       if (!inserted) throw new Error("The seed could not be planted.");
+      recordEvent(db, "plant_created");
       return { id: inserted.id };
   },
 
@@ -159,23 +165,7 @@ export const Actions = {
       if (!project[0]) throw new Error("Project not found.");
       if (project[0].status === "archived") throw new Error("Archived projects are dormant.");
       db.insert(schema.efforts).values({ userId, projectId: args.projectId, text: args.text }).run();
-      return { ok: true as const };
-  },
-
-  setNextStep(ctx: Context, args: z.infer<typeof contracts.setNextStep.request>) {
-      const { db, userId } = ctx;
-      const changed = db.update(schema.projects).set({ nextStep: args.text }).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId), eq(schema.projects.status, "active"))).returning({ id: schema.projects.id }).all();
-      if (!changed[0]) throw new Error("Project not found.");
-      return { ok: true as const };
-  },
-
-  completeNextStep(ctx: Context, args: z.infer<typeof contracts.completeNextStep.request>) {
-      const { db, userId } = ctx;
-      const rows = db.select({ id: schema.projects.id, nextStep: schema.projects.nextStep }).from(schema.projects).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId), eq(schema.projects.status, "active"))).limit(1).all();
-      const project = rows[0];
-      if (!project?.nextStep) throw new Error("Project not found.");
-      db.insert(schema.efforts).values({ userId, projectId: project.id, text: project.nextStep }).run();
-      db.update(schema.projects).set({ nextStep: null }).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, project.id))).run();
+      recordEvent(db, "effort_created");
       return { ok: true as const };
   },
 
@@ -185,20 +175,35 @@ export const Actions = {
       if (!project[0]) throw new Error("Project not found.");
       if (project[0].status === "archived") throw new Error("Archived projects are dormant.");
       db.insert(schema.outcomes).values({ userId, projectId: args.projectId, type: args.type, value: args.value, note: args.note }).run();
+      recordEvent(db, "outcome_created");
       return { ok: true as const };
   },
 
   completeProject(ctx: Context, args: z.infer<typeof contracts.completeProject.request>) {
       const { db, userId } = ctx;
-      const changed = db.update(schema.projects).set({ status: "completed", completedAt: new Date() }).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId))).returning({ id: schema.projects.id }).all();
-      if (!changed[0]) throw new Error("Project not found.");
+      const where = and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId));
+      const project = db.select().from(schema.projects).where(where).get();
+      if (!project) throw new Error("Project not found.");
+      if (project.status === "archived") throw new Error("Archived projects are dormant.");
+      if (project.status === "active") db.update(schema.projects).set({ status: "completed", completedAt: new Date() }).where(where).run();
       return { ok: true as const };
   },
 
   archiveProject(ctx: Context, args: z.infer<typeof contracts.archiveProject.request>) {
       const { db, userId } = ctx;
-      const changed = db.update(schema.projects).set({ status: "archived" }).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId))).returning({ id: schema.projects.id }).all();
+      const changed = db.update(schema.projects).set({ status: "archived", archiveReason: null }).where(and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId))).returning({ id: schema.projects.id }).all();
       if (!changed[0]) throw new Error("Project not found.");
+      return { ok: true as const };
+  },
+
+  restoreProject(ctx: Context, args: z.infer<typeof contracts.restoreProject.request>) {
+      const { db, userId } = ctx;
+      const where = and(eq(schema.projects.userId, userId), eq(schema.projects.id, args.projectId));
+      const project = db.select().from(schema.projects).where(where).get();
+      if (!project) throw new Error("Project not found.");
+      if (project.status !== "archived") return { ok: true as const };
+      if (!project.completedAt) requireCapacity(db, userId);
+      db.update(schema.projects).set({ status: project.completedAt ? "completed" : "active", archiveReason: null }).where(where).run();
       return { ok: true as const };
   },
 
@@ -245,6 +250,7 @@ export const Actions = {
       for (const sample of samples) {
         const existing = db.select({ id: schema.projects.id }).from(schema.projects).where(and(eq(schema.projects.userId, userId), eq(schema.projects.demoKey, `${userId}:${sample.key}`))).limit(1).all();
         if (existing[0]) continue;
+        if (sample.status === "active") requireCapacity(db, userId);
         const insertedRows = db.insert(schema.projects).values({ userId,
           name: sample.name,
           description: sample.description,
@@ -282,19 +288,10 @@ export const Actions = {
   },
 
   claimAnonymousGarden(ctx: Context, args: z.infer<typeof contracts.claimAnonymousGarden.request>) {
-      const { db, userId } = ctx;
-      const anonymousUserId = args.anonymousUserId.toLowerCase();
-      if (anonymousUserId === userId) throw new Error("Anonymous garden cannot match the account.");
-      const existing = db.select().from(schema.anonymousClaims).where(eq(schema.anonymousClaims.anonymousUserId, anonymousUserId)).get();
-      if (existing) {
-        if (existing.accountUserId === userId) return { status: "already-claimed" as const, migratedProjects: 0 };
-        throw new Error("Anonymous garden has already been claimed.");
-      }
-      const migratedProjects = db.update(schema.projects).set({ userId }).where(eq(schema.projects.userId, anonymousUserId)).returning({ id: schema.projects.id }).all().length;
-      db.update(schema.efforts).set({ userId }).where(eq(schema.efforts.userId, anonymousUserId)).run();
-      db.update(schema.outcomes).set({ userId }).where(eq(schema.outcomes.userId, anonymousUserId)).run();
-      db.insert(schema.anonymousClaims).values({ anonymousUserId, accountUserId: userId }).run();
-      return { status: "claimed" as const, migratedProjects };
+      void ctx; void args;
+      // UUIDs cannot distinguish anonymous owners from authenticated accounts.
+      // Legacy data is retained for an operator-assisted, verified migration.
+      throw new Error("Legacy garden import requires verified support assistance.");
   },
 
   exportGarden(ctx: Context) {
@@ -302,11 +299,8 @@ export const Actions = {
   },
 
   deletePersonalData(ctx: Context) {
-      const { db, userId } = ctx;
-      db.delete(schema.efforts).where(eq(schema.efforts.userId, userId)).run();
-      db.delete(schema.outcomes).where(eq(schema.outcomes.userId, userId)).run();
-      db.delete(schema.projects).where(eq(schema.projects.userId, userId)).run();
-      db.update(schema.anonymousClaims).set({ accountUserId: null }).where(eq(schema.anonymousClaims.accountUserId, userId)).run();
-      return { ok: true as const };
+      void ctx;
+      // Only DeletionService may perform the coordinated deletion workflow.
+      throw new Error("Account deletion requires the coordinated workflow.");
   },
 };

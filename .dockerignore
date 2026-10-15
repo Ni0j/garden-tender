@@ -10,3 +10,9 @@ data
 client/dist
 server/dist
 **/*.tsbuildinfo*
+
+backups
+**/*.sqlite
+**/*.sqlite3
+docs
+design

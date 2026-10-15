@@ -1,2 +1,3 @@
 declare module "*.css";
-declare const __API_BASE_URL__: string;
+declare const __SUPABASE_URL__: string;
+declare const __SUPABASE_PUBLISHABLE_KEY__: string;

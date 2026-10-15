@@ -9,7 +9,7 @@ export function ViewChoice({ view, onChange }: { view: ViewMode; onChange: (view
   return <div className="view-choice" role="group" aria-label="Garden view">
     <button aria-pressed={view === "plant"} onClick={() => onChange("plant")}>Garden</button>
     <button aria-pressed={view === "matrix"} onClick={() => onChange("matrix")}>Matrix</button>
-    <button aria-pressed={view === "minimal"} onClick={() => onChange("minimal")}>Minimal</button>
+    <button aria-pressed={view === "minimal"} onClick={() => onChange("minimal")}>List</button>
   </div>;
 }
 

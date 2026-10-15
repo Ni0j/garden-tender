@@ -1,7 +1,9 @@
+import { PrivacyNotice } from "./PrivacyNotice";
 import { useEffect, useState, type FormEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Session, SupabaseClient } from "@supabase/supabase-js";
 import { App } from "./App";
+import { accountRequest } from "./api";
 import { getAuthClient } from "./auth";
 
 function SignIn({ client }: { client: SupabaseClient }) {
@@ -15,19 +17,22 @@ function SignIn({ client }: { client: SupabaseClient }) {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
-    const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-    setBusy(false);
-    if (error) setMessage(error.message);
-    else setSent(true);
+    try {
+      const { error } = await client.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true } });
+      if (error) setMessage(error.message); else setSent(true);
+    } catch { setMessage("Could not send a code. Check your connection and try again."); }
+    finally { setBusy(false); }
   }
 
   async function verifyCode(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
     setMessage(null);
-    const { error } = await client.auth.verifyOtp({ email, token: code.replace(/\s/g, ""), type: "email" });
-    setBusy(false);
-    if (error) setMessage(error.message);
+    try {
+      const { error } = await client.auth.verifyOtp({ email: email.trim(), token: code.replace(/\s/g, ""), type: "email" });
+      if (error) setMessage(error.message);
+    } catch { setMessage("Could not verify the code. Check your connection and try again."); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -43,12 +48,13 @@ function SignIn({ client }: { client: SupabaseClient }) {
           </form>
         ) : (
           <form className="stack-form" onSubmit={verifyCode}>
-            <label>Six-digit code<input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value)} minLength={6} maxLength={8} required autoFocus /></label>
+            <label>Email code<input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value)} minLength={6} maxLength={8} required autoFocus /></label>
             <button className="primary-button" type="submit" disabled={busy}>{busy ? "Checking…" : "Enter the garden"}</button>
-            <button className="text-button" type="button" onClick={() => { setSent(false); setCode(""); setMessage(null); }}>Use a different email</button>
+            <button className="text-button" type="button" onClick={() => { setSent(false); setCode(""); setMessage(null); }}>Resend code / use a different email</button>
           </form>
         )}
         {message && <p className="form-error" role="alert">{message}</p>}
+        <PrivacyNotice />
       </section>
     </main>
   );
@@ -59,9 +65,11 @@ export function AccountGate() {
   const [client, setClient] = useState<SupabaseClient | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setLoading(true); setError(null);
     let active = true;
     let unsubscribe: (() => void) | undefined;
     void getAuthClient().then(async (authClient) => {
@@ -71,10 +79,12 @@ export function AccountGate() {
       if (!active) return;
       if (sessionError) setError(sessionError.message);
       setSession(data.session);
+      if (data.session) void accountRequest("analytics/sign-in").catch(() => {});
       setLoading(false);
       const listener = authClient.auth.onAuthStateChange((_event, nextSession) => {
-        queryClient.clear();
+        if (_event === "SIGNED_OUT" || _event === "SIGNED_IN") queryClient.clear();
         setSession(nextSession);
+        if (_event === "SIGNED_IN") window.setTimeout(() => { void accountRequest("analytics/sign-in").catch(() => {}); }, 0);
       });
       unsubscribe = () => listener.data.subscription.unsubscribe();
     }).catch((reason: unknown) => {
@@ -83,10 +93,10 @@ export function AccountGate() {
       setLoading(false);
     });
     return () => { active = false; unsubscribe?.(); };
-  }, [queryClient]);
+  }, [queryClient, attempt]);
 
   if (loading) return <div className="loading-garden auth-loading"><span /><span /><span /><p>Opening the gate…</p></div>;
-  if (error || !client) return <main className="auth-page"><section className="auth-card"><h1>The garden gate is unavailable.</h1><p className="form-error">{error}</p></section></main>;
+  if (error || !client) return <main className="auth-page"><section className="auth-card"><h1>The garden gate is unavailable.</h1><p className="form-error" role="alert">{error}</p><button className="primary-button" onClick={() => setAttempt(value => value + 1)}>Try again</button></section></main>;
   if (!session?.user.email) return <SignIn client={client} />;
-  return <App key={session.user.id} accountEmail={session.user.email} onSignOut={(localOnly = false) => client.auth.signOut(localOnly ? { scope: "local" } : undefined)} />;
+  return <App key={session.user.id} accountEmail={session.user.email} onSignOut={async (localOnly = false) => { const { error } = await client.auth.signOut(localOnly ? { scope: "local" } : undefined); if (error) throw error; }} />;
 }
