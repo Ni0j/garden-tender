@@ -35,7 +35,7 @@ In Supabase Authentication:
 
 1. Enable Email authentication with email confirmation.
 2. Set Site URL to PUBLIC_APP_URL and allow the precise staging/production redirect URLs you use.
-3. Set the Magic Link and signup email templates to include the OTP, for example `<h2>Your Garden code</h2><p>{{ .Token }}</p>`. The app accepts 6–8 characters; configure a matching OTP length and expiry.
+3. Set both the **Confirm sign up** and **Magic link or OTP** templates to include the OTP, for example `<h2>Your Garden code</h2><p>{{ .Token }}</p>`. Set Email OTP length to 8 digits; the app requires exactly eight digits.
 4. Configure **custom SMTP** with your sender name/address, SMTP host, port, username, and password. Verify the sending domain's DNS with the email provider. These credentials belong in the Supabase dashboard, not Garden's browser bundle.
 5. Verify a brand-new account and a returning account at email addresses outside the Supabase project team. Test an invalid/expired code, resend, reload, token refresh, sign-out, and sign-in from a second browser. Verify deleting a disposable account removes its Supabase user.
 

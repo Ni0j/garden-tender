@@ -18,7 +18,13 @@ function SignIn({ client }: { client: SupabaseClient }) {
     setBusy(true);
     setMessage(null);
     try {
-      const { error } = await client.auth.signInWithOtp({ email: email.trim(), options: { shouldCreateUser: true } });
+      const { error } = await client.auth.signInWithOtp({
+        email: email.trim(),
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: window.location.href.split(/[?#]/, 1)[0],
+        },
+      });
       if (error) setMessage(error.message); else setSent(true);
     } catch { setMessage("Could not send a code. Check your connection and try again."); }
     finally { setBusy(false); }
@@ -26,10 +32,15 @@ function SignIn({ client }: { client: SupabaseClient }) {
 
   async function verifyCode(event: FormEvent) {
     event.preventDefault();
+    const token = code.replace(/\D/g, "");
+    if (token.length !== 8) {
+      setMessage("Enter the 8-digit code from your email.");
+      return;
+    }
     setBusy(true);
     setMessage(null);
     try {
-      const { error } = await client.auth.verifyOtp({ email: email.trim(), token: code.replace(/\s/g, ""), type: "email" });
+      const { error } = await client.auth.verifyOtp({ email: email.trim(), token, type: "email" });
       if (error) setMessage(error.message);
     } catch { setMessage("Could not verify the code. Check your connection and try again."); }
     finally { setBusy(false); }
@@ -48,7 +59,7 @@ function SignIn({ client }: { client: SupabaseClient }) {
           </form>
         ) : (
           <form className="stack-form" onSubmit={verifyCode}>
-            <label>Email code<input inputMode="numeric" autoComplete="one-time-code" value={code} onChange={(event) => setCode(event.target.value)} minLength={6} maxLength={8} required autoFocus /></label>
+            <label>8-digit email code<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{8}" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 8))} minLength={8} maxLength={8} required autoFocus /></label>
             <button className="primary-button" type="submit" disabled={busy}>{busy ? "Checking…" : "Enter the garden"}</button>
             <button className="text-button" type="button" onClick={() => { setSent(false); setCode(""); setMessage(null); }}>Resend code / use a different email</button>
           </form>
@@ -72,18 +83,14 @@ export function AccountGate() {
     setLoading(true); setError(null);
     let active = true;
     let unsubscribe: (() => void) | undefined;
-    void getAuthClient().then(async (authClient) => {
+    void getAuthClient().then((authClient) => {
       if (!active) return;
       setClient(authClient);
-      const { data, error: sessionError } = await authClient.auth.getSession();
-      if (!active) return;
-      if (sessionError) setError(sessionError.message);
-      setSession(data.session);
-      if (data.session) void accountRequest("analytics/sign-in").catch(() => {});
-      setLoading(false);
       const listener = authClient.auth.onAuthStateChange((_event, nextSession) => {
+        if (!active) return;
         if (_event === "SIGNED_OUT" || _event === "SIGNED_IN") queryClient.clear();
         setSession(nextSession);
+        setLoading(false);
         if (_event === "SIGNED_IN") window.setTimeout(() => { void accountRequest("analytics/sign-in").catch(() => {}); }, 0);
       });
       unsubscribe = () => listener.data.subscription.unsubscribe();
