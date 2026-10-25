@@ -54,7 +54,7 @@ React Query `QueryClient`.
 
 See [the V1.0 setup and release runbook](docs/LAUNCH.md) for all required Stripe, SMTP, backup and production variables, test-mode acceptance, and the explicit deployment approval boundary.
 
-Supabase Auth provides passwordless email codes. Its browser SDK persists and
+Supabase Auth provides email-and-password accounts. Its browser SDK persists and
 refreshes the session in local storage, so reloads and later visits remain signed
 in. Every data request sends the access token as `Authorization: Bearer <token>`.
 The Bun server validates that token against Supabase Auth's `/auth/v1/user`

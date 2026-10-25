@@ -20,7 +20,7 @@ Recorded October 13–14, 2026. These results cover the current local implementa
 
 Follow [LAUNCH.md](LAUNCH.md) for exact configuration and acceptance steps. These checks remain unverified because the required external services or runtime are unavailable locally:
 
-- Real Supabase email delivery, OTP/session behavior, redirect configuration, and administrative account deletion.
+- Real Supabase password registration/login/reset, session behavior, redirect configuration, and administrative account deletion.
 - Stripe test-mode monthly and annual checkout, configured Portal cancellation, webhook delivery/retries, renewal failures, and expiration against actual Stripe subscriptions. Provider fakes and signature tests do not replace these checks.
 - Independent S3-compatible storage upload/download, deletion-intent persistence, retention, and a remote restore drill with billing/deletion reconciliation.
 - Docker image execution (Docker is unavailable here), Render persistent disk behavior, deployment secrets, health checks, and manual deployment controls.

@@ -264,7 +264,7 @@ function ProjectDetail({ project, onClose, onChanged, setAnimating }: { project:
   );
 }
 
-export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignOut: (localOnly?: boolean) => Promise<unknown> }) {
+export function App({ accountEmail, onChangePassword, onSignOut }: { accountEmail: string; onChangePassword: (password: string) => Promise<unknown>; onSignOut: (localOnly?: boolean) => Promise<unknown> }) {
   const queryClient = useQueryClient();
   const [anonymousId] = useState(existingAnonymousId);
   const [migrationDismissed, setMigrationDismissed] = useState(false);
@@ -277,6 +277,9 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
     try { localStorage.setItem("project-garden.view", next); } catch { /* Keep the current session usable. */ }
   };
   const [gardenMessage, setGardenMessage] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmedPassword, setConfirmedPassword] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [filter, setFilter] = useState<Filter>("active");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -321,6 +324,16 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
     },
   });
   const signOut = useMutation({ mutationFn: () => onSignOut() });
+  const changePassword = useMutation({
+    mutationFn: async () => {
+      if (newPassword !== confirmedPassword) throw new Error("Passwords do not match.");
+      await onChangePassword(newPassword);
+    },
+    onSuccess: () => {
+      setNewPassword(""); setConfirmedPassword(""); setChangingPassword(false);
+      setGardenMessage("Password updated.");
+    },
+  });
   const deleteData = useMutation({
     mutationFn: () => api.deletePersonalData({ confirmation: "DELETE" }),
     onSettled: refresh,
@@ -351,6 +364,13 @@ export function App({ accountEmail, onSignOut }: { accountEmail: string; onSignO
                 {account && !account.testing && <button onClick={() => setShowBilling(true)}>{account.plan === "plus" ? "Garden Plus · Manage billing" : "Garden Free · Explore Plus"}</button>}
                 {anonymousId && <button onClick={() => { setMigrationDismissed(false); }}>About this browser’s old garden</button>}
                 <button onClick={() => exportData.mutate()} disabled={exportData.isPending}>{exportData.isPending ? "Preparing export…" : "Export garden data"}</button>
+                <button onClick={() => setChangingPassword(value => !value)}>Change password</button>
+                {changingPassword && <form className="stack-form" onSubmit={event => { event.preventDefault(); changePassword.mutate(); }}>
+                  <label>New password<input type="password" autoComplete="new-password" value={newPassword} onChange={event => setNewPassword(event.target.value)} minLength={8} required /></label>
+                  <label>Confirm new password<input type="password" autoComplete="new-password" value={confirmedPassword} onChange={event => setConfirmedPassword(event.target.value)} minLength={8} required /></label>
+                  <button type="submit" disabled={changePassword.isPending}>{changePassword.isPending ? "Saving…" : "Save password"}</button>
+                  {changePassword.error && <p className="form-error" role="alert">{changePassword.error.message}</p>}
+                </form>}
                 <button disabled={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</button>
                 <button className="danger-action" onClick={permanentlyDeleteData} disabled={deleteData.isPending}>{deleteData.isPending ? "Deleting…" : "Delete account and garden data"}</button>
                 {(exportData.error || deleteData.error || signOut.error) && <p className="form-error">{(exportData.error || deleteData.error || signOut.error)?.message}</p>}

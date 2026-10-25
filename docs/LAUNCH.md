@@ -22,7 +22,7 @@ On expiration, the oldest 3 active plants (created_at, then id) remain active. E
 
 Anonymous self-service claiming is disabled with HTTP 410. UUID possession is not proof of ownership. Existing anonymous rows and claim tombstones are preserved. Do not re-enable public claiming. Any operator-assisted recovery requires independent ownership verification, an approved backup/migration, and the same Free-capacity policy; do not infer eligibility merely from a UUID or absence from the new accounts table. Obsolete setNextStep/completeNextStep APIs return 404; updateProject/toggleTodo is the canonical, once-credited completion path.
 
-## Supabase and production OTP email
+## Supabase email and password authentication
 
 Set server environment variables (never commit .env):
 
@@ -33,13 +33,13 @@ Set server environment variables (never commit .env):
 
 In Supabase Authentication:
 
-1. Enable Email authentication with email confirmation.
+1. Enable Email authentication with password sign-in. Disable mandatory email confirmation if accounts must be usable immediately after registration.
 2. Set Site URL to PUBLIC_APP_URL and allow the precise staging/production redirect URLs you use.
-3. Set both the **Confirm sign up** and **Magic link or OTP** templates to include the OTP, for example `<h2>Your Garden code</h2><p>{{ .Token }}</p>`. Set Email OTP length to 8 digits; the app requires exactly eight digits.
-4. Configure **custom SMTP** with your sender name/address, SMTP host, port, username, and password. Verify the sending domain's DNS with the email provider. These credentials belong in the Supabase dashboard, not Garden's browser bundle.
-5. Verify a brand-new account and a returning account at email addresses outside the Supabase project team. Test an invalid/expired code, resend, reload, token refresh, sign-out, and sign-in from a second browser. Verify deleting a disposable account removes its Supabase user.
+3. Configure the **Reset password** email template and redirect it to PUBLIC_APP_URL. Password login does not use Magic Link or OTP templates.
+4. Configure **custom SMTP** only if production password-reset or optional confirmation emails need public delivery. These credentials belong in the Supabase dashboard, not Garden's browser bundle.
+5. Verify a brand-new account and a returning account. Test an incorrect password, password reset, reload, token refresh, sign-out, password change, and sign-in from a second browser. Verify deleting a disposable account removes its Supabase user.
 
-Supabase's default email service is not suitable for public delivery. References: https://supabase.com/docs/guides/auth/auth-smtp and https://supabase.com/docs/guides/auth/auth-email-passwordless . Dashboard configuration and real delivery must be completed by the owner with access.
+Supabase's default email service is not suitable for public password-reset delivery. References: https://supabase.com/docs/guides/auth/auth-smtp and https://supabase.com/docs/guides/auth/passwords . Dashboard configuration and real delivery must be completed by the owner with access.
 
 ## Stripe TEST MODE first
 
@@ -125,7 +125,7 @@ The runtime image contains compiled operational scripts and no test harness. Doc
 
 ## Required owner-side acceptance still to record
 
-- [ ] Real Supabase OTP delivery, refresh, sign-out, and admin deletion.
+- [ ] Real Supabase password registration/login/reset, refresh, sign-out, and admin deletion.
 - [ ] Successful Stripe sandbox monthly and annual payments, Portal cancellation, renewals, failure emails, and expiry.
 - [ ] Actual private S3 upload/download and deletion-journal recovery rehearsal.
 - [ ] Docker image build/run and Render disk restart/redeploy persistence.
