@@ -411,6 +411,7 @@ main.matrix-main { width: 100%; max-width: none; height: 100dvh; padding: 0; ove
 .matrix-fullscreen { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
 .matrix-toolbar { height: 44px; flex: none; display: flex; align-items: center; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
 .matrix-toolbar > span { color: var(--dim); }
+.matrix-toolbar .matrix-add { margin-left: auto; min-height: 44px; white-space: nowrap; }
 .matrix-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .matrix-view .plant-matrix { height: 100%; flex: 1; min-height: 0; border: 0; }
 .matrix-view .quadrant-space { overflow: hidden; }

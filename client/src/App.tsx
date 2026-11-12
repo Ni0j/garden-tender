@@ -351,7 +351,7 @@ export function App({ accountEmail, onChangePassword, onSignOut }: { accountEmai
     <div className="app-shell">
       <main className={view === "matrix" ? "matrix-main" : undefined} inert={creating || Boolean(selected) || (showBilling && Boolean(account) && !account?.testing)}>
         {view === "matrix" ? <div className="matrix-fullscreen">
-          <div className="matrix-toolbar"><button className="text-button" onClick={() => changeView("plant")}>← Garden</button><span>Matrix</span></div>
+          <div className="matrix-toolbar"><button className="text-button" onClick={() => changeView("plant")}>← Garden</button><span>Matrix</span><button className="matrix-add text-button" onClick={() => account && !account.canCreate ? setShowBilling(true) : setCreating(true)}>＋ Add a plant</button></div>
           {projectsQuery.isPending ? <p role="status">Waking the garden…</p> : projectsQuery.error ? <div className="empty-garden"><p>The garden could not be reached.</p><button onClick={refresh}>Try again</button></div> : <Matrix projects={projects.filter(project => project.status === "active")} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />}
           {update.error && <p role="alert" className="matrix-save-error">Could not save this change. Please try again.</p>}
         </div> : <>
