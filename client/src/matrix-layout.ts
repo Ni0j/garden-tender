@@ -1,8 +1,13 @@
 export type Position = { x: number; y: number };
 type Item = { id: number; details: { matrixPosition: Position | null } };
-export const cellHeight = 88;
-export function matrixLayout(items: Item[], width: number) {
-  const columns = Math.max(1, Math.floor(width / 104));
+export function matrixLayout(items: Item[], width: number, height = 300) {
+  const count = Math.max(1, items.length);
+  let columns = 1, best = 0;
+  for (let candidate = 1; candidate <= count; candidate++) {
+    const rows = Math.ceil(count / candidate);
+    const scale = Math.min(width / candidate / 104, height / rows / 88);
+    if (scale > best) { best = scale; columns = candidate; }
+  }
   const rows = Math.max(1, Math.ceil(items.length / columns));
   const occupied = new Set<number>();
   const slots = new Map<number, number>();
@@ -12,7 +17,7 @@ export function matrixLayout(items: Item[], width: number) {
     const slot = preferred ? available.sort((a, b) => distance(a, preferred, columns, rows) - distance(b, preferred, columns, rows) || a - b)[0]! : available[0]!;
     occupied.add(slot); slots.set(item.id, slot);
   }
-  return { columns, rows, slots };
+  return { columns, rows, slots, cellHeight: height / rows };
 }
 function distance(slot: number, position: Position, columns: number, rows: number) {
   return (slot % columns - position.x * (columns - 1)) ** 2 + (Math.floor(slot / columns) - position.y * (rows - 1)) ** 2;

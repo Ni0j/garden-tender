@@ -349,7 +349,12 @@ export function App({ accountEmail, onChangePassword, onSignOut }: { accountEmai
 
   return (
     <div className="app-shell">
-      <main inert={creating || Boolean(selected) || (showBilling && Boolean(account) && !account?.testing)}>
+      <main className={view === "matrix" ? "matrix-main" : undefined} inert={creating || Boolean(selected) || (showBilling && Boolean(account) && !account?.testing)}>
+        {view === "matrix" ? <div className="matrix-fullscreen">
+          <div className="matrix-toolbar"><button className="text-button" onClick={() => changeView("plant")}>← Garden</button><span>Matrix</span></div>
+          {projectsQuery.isPending ? <p role="status">Waking the garden…</p> : projectsQuery.error ? <div className="empty-garden"><p>The garden could not be reached.</p><button onClick={refresh}>Try again</button></div> : <Matrix projects={projects.filter(project => project.status === "active")} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />}
+          {update.error && <p role="alert" className="matrix-save-error">Could not save this change. Please try again.</p>}
+        </div> : <>
         <header className="garden-intro">
           <div>
             <p className="overline">Tended by effort</p>
@@ -423,8 +428,6 @@ export function App({ accountEmail, onChangePassword, onSignOut }: { accountEmai
           </div>
         ) : view === "minimal" || filter === "archived" ? (
           <ProjectList key={filter} projects={visibleProjects} archived={filter === "archived"} onOpen={setSelectedId} onRestored={project => { setGardenMessage(`${project.name} restored. Its steps and history are ready.`); setFilter(project.completedAt ? "completed" : "active"); refresh(); }} />
-        ) : view === "matrix" ? (
-          <Matrix projects={visibleProjects} onOpen={setSelectedId} onSave={(id, settings) => update.mutate({ projectId: id, change: { kind: "settings", ...settings } })} />
         ) : (
           <section className="garden-bed" aria-label="Garden projects">
             <div className="garden-rule" />
@@ -433,6 +436,7 @@ export function App({ accountEmail, onChangePassword, onSignOut }: { accountEmai
         )}
         <PrivacyNotice />
         <FloatGarden projects={projects} onOpen={setSelectedId} onChange={(id, inFloat) => update.mutate({ projectId: id, change: { kind: "settings", inFloat } })} busy={update.isPending} />
+        </>}
       </main>
 
       {showBilling && account && !account.testing && <BillingPanel account={account} onClose={() => setShowBilling(false)} />}

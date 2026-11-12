@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { cellHeight, matrixLayout, snapSlot } from "./matrix-layout";
+import { matrixLayout, snapSlot } from "./matrix-layout";
 import { Plant, type Project } from "./Plant";
 import type { Details } from "../../shared/project";
 
@@ -14,7 +14,7 @@ type Drag = { id: number; startX: number; startY: number; left: number; top: num
 
 export function Matrix({ projects, onOpen, onSave }: Props) {
   const board = useRef<HTMLDivElement>(null);
-  const [widths, setWidths] = useState<Record<string, number>>({});
+  const [widths, setWidths] = useState<Record<string, { width: number; height: number }>>({});
   const keyboardFocus = useRef<number | null>(null);
   useEffect(() => {
     if (keyboardFocus.current !== null) {
@@ -29,50 +29,37 @@ export function Matrix({ projects, onOpen, onSave }: Props) {
   useEffect(() => {
     const element = board.current;
     if (!element) return;
-    const fit = () => {
-      const viewport = window.visualViewport;
-      const bottom = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
-      element.style.height = `${Math.max(240, bottom - (element.getBoundingClientRect().top + window.scrollY) - 16)}px`;
-    };
-    const observer = new ResizeObserver(fit);
-    observer.observe(element.closest("main")!);
     const spaces = new ResizeObserver(entries => {
       setWidths(previous => {
         const next = { ...previous };
-        for (const entry of entries) next[(entry.target as HTMLElement).dataset.quadrant!] = entry.contentRect.width;
+        for (const entry of entries) next[(entry.target as HTMLElement).dataset.quadrant!] = { width: entry.contentRect.width, height: entry.contentRect.height };
         return next;
       });
     });
     element.querySelectorAll(".quadrant-space").forEach(space => spaces.observe(space));
-    window.addEventListener("resize", fit);
-    window.visualViewport?.addEventListener("resize", fit);
-    fit();
     return () => {
-      observer.disconnect();
       spaces.disconnect();
-      window.removeEventListener("resize", fit);
-      window.visualViewport?.removeEventListener("resize", fit);
     };
   }, []);
-  return <section aria-label="Plant priority matrix">
-    <p className="view-hint">Drag to snap into a free space. Scroll inside quadrants. Select to tend.</p>
+  return <section className="matrix-view" aria-label="Plant priority matrix">
+    <p className="sr-only">Drag to snap into a free space. Select to tend.</p>
     <p className="sr-only">Arrow keys move a focused plant one grid space.</p>
     <p role="status" className="sr-only">{announcement}</p>
     <div className="plant-matrix" ref={board}>
       {quadrants.map((quadrant, quadrantIndex) => {
         const plants = projects.filter(project => project.details.quadrant === quadrant.id);
-        const layout = matrixLayout(plants, widths[quadrant.id] ?? 104);
+        const layout = matrixLayout(plants, widths[quadrant.id]?.width ?? 104, widths[quadrant.id]?.height ?? 300);
         return <section key={quadrant.id} className="matrix-quadrant" aria-label={quadrant.title}>
           <header><h2>{quadrant.title}</h2><p>{quadrant.hint}{plants.length > 0 && <span className="quadrant-count"> · {plants.length}</span>}</p></header>
           <div className="quadrant-space" data-quadrant={quadrant.id} tabIndex={0} aria-label={`${quadrant.title} projects`}>
             {plants.length === 0 && <p className="matrix-empty">Room to grow</p>}
-            <div className="quadrant-grid" style={{ height: plants.length ? layout.rows * cellHeight : 0 }}>
+            <div className="quadrant-grid" style={{ height: "100%" }}>
             {plants.map(project => {
               const slot = layout.slots.get(project.id)!;
               const column = slot % layout.columns, row = Math.floor(slot / layout.columns);
               const moving = preview?.id === project.id;
               return <button key={project.id} data-project-id={project.id} className={`matrix-plant ${moving ? "is-dragging" : ""}`}
-                style={moving ? { position: "fixed", left: drag.current!.left + preview.x, top: drag.current!.top + preview.y, width: drag.current!.width, height: drag.current!.height } : { left: `${column * 100 / layout.columns}%`, top: row * cellHeight, width: `${100 / layout.columns}%`, height: cellHeight }}
+                style={moving ? { position: "fixed", left: drag.current!.left + preview.x, top: drag.current!.top + preview.y, width: drag.current!.width, height: drag.current!.height } : { left: `${column * 100 / layout.columns}%`, top: `${row * 100 / layout.rows}%`, width: `${100 / layout.columns}%`, height: `${100 / layout.rows}%` }}
                 title={project.name}
                 aria-label={`Open ${project.name}; ${quadrant.title}`}
                 onClick={() => { if (!suppressClick.current) onOpen(project.id); suppressClick.current = false; }}
@@ -100,8 +87,8 @@ export function Matrix({ projects, onOpen, onSave }: Props) {
                     const target = quadrants[row * 2 + column]!;
                     const spaceElement = board.current.querySelector<HTMLElement>(`[data-quadrant="${target.id}"]`)!;
                     const space = spaceElement.getBoundingClientRect();
-                    const targetLayout = matrixLayout(projects.filter(p => p.details.quadrant === target.id), space.width);
-                    const matrixPosition = snapSlot(targetLayout, project.id, (e.clientX - space.left) / (space.width / targetLayout.columns) - .5, (e.clientY - space.top + spaceElement.scrollTop) / cellHeight - .5);
+                    const targetLayout = matrixLayout([...projects.filter(p => p.details.quadrant === target.id && p.id !== project.id), { ...project, details: { ...project.details, matrixPosition: null } }], space.width, space.height);
+                    const matrixPosition = snapSlot(targetLayout, project.id, (e.clientX - space.left) / (space.width / targetLayout.columns) - .5, (e.clientY - space.top + spaceElement.scrollTop) / targetLayout.cellHeight - .5);
                     onSave(project.id, { quadrant: target.id, matrixPosition });
                     setAnnouncement(`${project.name} moved to ${target.title}.`);
                   }
@@ -119,7 +106,7 @@ export function Matrix({ projects, onOpen, onSave }: Props) {
                   if (y >= layout.rows && quadrantRow === 0) { quadrantRow = 1; y = 0; }
                   else if (y < 0 && quadrantRow === 1) { quadrantRow = 0; y = Infinity; }
                   const target = quadrants[quadrantRow * 2 + quadrantColumn]!;
-                  const targetLayout = matrixLayout(projects.filter(p => p.details.quadrant === target.id), widths[target.id] ?? 104);
+                  const targetLayout = matrixLayout([...projects.filter(p => p.details.quadrant === target.id && p.id !== project.id), { ...project, details: { ...project.details, matrixPosition: null } }], widths[target.id]?.width ?? 104, widths[target.id]?.height ?? 300);
                   x = Math.max(0, Math.min(targetLayout.columns - 1, x));
                   y = Math.max(0, Math.min(targetLayout.rows - 1, y));
                   onSave(project.id, { quadrant: target.id, matrixPosition: snapSlot(targetLayout, project.id, x, y) });

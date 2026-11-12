@@ -7,10 +7,11 @@ test('colliding saved positions get distinct slots, independent of input order',
   expect(new Set(layout.slots.values()).size).toBe(15);
   expect([...matrixLayout([...projects].reverse(), 420).slots]).toEqual([...layout.slots]);
 });
-test('narrow quadrants keep a readable single column', () => {
-  const layout = matrixLayout(items(10), 140);
-  expect(layout.columns).toBe(1);
-  expect(layout.rows).toBe(10);
+test('dense narrow quadrants fit every project inside available height', () => {
+  const layout = matrixLayout(items(10), 170, 330);
+  expect(layout.columns).toBe(2);
+  expect(layout.rows).toBe(5);
+  expect(layout.cellHeight * layout.rows).toBe(330);
   expect(new Set(layout.slots.values()).size).toBe(10);
 });
 test('dropping into a full quadrant adds an unoccupied row', () => {
@@ -22,7 +23,7 @@ test('dropping into a full quadrant adds an unoccupied row', () => {
   expect(new Set(next.slots.values()).size).toBe(5);
 });
 test('dropping on another project chooses a free cell', () => {
-  const layout = matrixLayout(items(3), 208);
+  const layout = matrixLayout(items(3), 208, 120);
   const position = snapSlot(layout, 99, 0, 0);
   const slot = Math.round(position.y * (layout.rows - 1)) * layout.columns + Math.round(position.x * (layout.columns - 1));
   expect([...layout.slots.values()]).not.toContain(slot);

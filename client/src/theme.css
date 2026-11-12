@@ -405,3 +405,16 @@ select { max-width: 100%; }
   .detail-content { padding-top: 22px; }
   .stage-stamp { max-width: 100px; }
 }
+
+/* Matrix is a dedicated viewport, with every cell visible. */
+main.matrix-main { width: 100%; max-width: none; height: 100dvh; padding: 0; overflow: hidden; }
+.matrix-fullscreen { height: 100%; display: flex; flex-direction: column; background: var(--bg); }
+.matrix-toolbar { height: 44px; flex: none; display: flex; align-items: center; gap: 20px; padding: 0 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.matrix-toolbar > span { color: var(--dim); }
+.matrix-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.matrix-view .plant-matrix { height: 100%; flex: 1; min-height: 0; border: 0; }
+.matrix-view .quadrant-space { overflow: hidden; }
+.matrix-view .matrix-plant { container-type: size; padding: 3px 5px; justify-content: center; }
+.matrix-view .matrix-plant .plant-wrap { width: min(80px, 90cqw, max(0px, calc(100cqh - 42px))); height: min(80px, max(0px, calc(100cqh - 42px))); }
+.matrix-view .matrix-plant > span { max-height: 36px; height: auto; min-height: 18px; font-size: clamp(11px, 12cqw, 14px); }
+.matrix-save-error { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); padding: 10px 16px; background: var(--bg); border: 1px solid var(--border); z-index: 10; }
