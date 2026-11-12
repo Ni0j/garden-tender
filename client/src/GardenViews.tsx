@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Plant, type Project } from "./Plant";
 import type { Details } from "../../shared/project";
 
@@ -25,8 +25,25 @@ export function Matrix({ projects, onOpen, onSave }: Props) {
   const suppressClick = useRef(false);
   const [preview, setPreview] = useState<{ id: number; x: number; y: number } | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const largest = Math.max(1, ...quadrants.map(q => projects.filter(p => p.details.quadrant === q.id).length));
-  const spaceHeight = Math.max(260, largest * 190);
+  useEffect(() => {
+    const element = board.current;
+    if (!element) return;
+    const fit = () => {
+      const viewport = window.visualViewport;
+      const bottom = viewport ? viewport.height + viewport.offsetTop : window.innerHeight;
+      element.style.height = `${Math.max(240, bottom - element.getBoundingClientRect().top - 16)}px`;
+    };
+    const observer = new ResizeObserver(fit);
+    observer.observe(element.closest("main")!);
+    window.addEventListener("resize", fit);
+    window.visualViewport?.addEventListener("resize", fit);
+    fit();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fit);
+      window.visualViewport?.removeEventListener("resize", fit);
+    };
+  }, []);
   return <section aria-label="Plant priority matrix">
     <p className="view-hint">Drag a plant to arrange it or change its priority. Select to tend it. Arrow keys move a focused plant.</p>
     <p role="status" className="sr-only">{announcement}</p>
@@ -35,10 +52,10 @@ export function Matrix({ projects, onOpen, onSave }: Props) {
         const plants = projects.filter(project => project.details.quadrant === quadrant.id);
         return <section key={quadrant.id} className="matrix-quadrant" aria-label={quadrant.title}>
           <header><h2>{quadrant.title}</h2><p>{quadrant.hint}</p></header>
-          <div className="quadrant-space" data-quadrant={quadrant.id} style={{ height: spaceHeight }}>
+          <div className="quadrant-space" data-quadrant={quadrant.id} style={{ "--plant-count": Math.max(1, plants.length) } as CSSProperties}>
             {plants.length === 0 && <p className="matrix-empty">Room to grow</p>}
             {plants.map((project, index) => {
-              const position = project.details.matrixPosition ?? { x: plants.length === 1 ? .5 : index % 2 ? .65 : .35, y: plants.length === 1 ? .35 : index / (plants.length - 1) };
+              const position = project.details.matrixPosition ?? { x: plants.length === 1 ? .5 : index / (plants.length - 1), y: plants.length === 1 ? .35 : index / (plants.length - 1) };
               const moving = preview?.id === project.id;
               return <button key={project.id} data-project-id={project.id} className={`matrix-plant ${moving ? "is-dragging" : ""}`}
                 style={{ left: `calc(${position.x * 100}% - var(--matrix-plant-width) * ${position.x})`, top: `calc(${position.y * 100}% - var(--matrix-plant-height) * ${position.y})`, transform: moving ? `translate(${preview.x}px, ${preview.y}px)` : undefined }}
