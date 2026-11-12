@@ -336,14 +336,15 @@ select { max-width: 100%; }
 .matrix-quadrant:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
 .matrix-quadrant header { flex: none; }
 .matrix-quadrant h2 { font-size: 16px; line-height: 1.3; margin: 0; }
-.matrix-quadrant header p { font-size: 14px; color: var(--dim); margin-top: 5px; }
-.quadrant-space { position: relative; flex: 1; min-height: 0; container-type: size; --matrix-plant-height: min(210px, 100cqh); --matrix-plant-width: min(140px, calc(100cqw / var(--plant-count)), 66cqh); }
-.matrix-empty { color: var(--dim); opacity: .65; font-size: 14px; text-align: center; position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
-.matrix-plant { position: absolute; width: var(--matrix-plant-width); height: var(--matrix-plant-height); padding: 0; touch-action: none; cursor: grab; user-select: none; display: flex; flex-direction: column; justify-content: end; align-items: center; background: transparent; border: 0; }
-.matrix-plant .plant-wrap { width: 100%; min-height: 0; flex: 1; }
+.matrix-quadrant header p { font-size: 14px; line-height: 18px; color: var(--dim); margin: 4px 0; }
+.quadrant-space { position: relative; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.quadrant-grid { position: relative; min-width: 0; }
+.matrix-empty { color: var(--dim); font-size: 14px; text-align: center; position: absolute; inset: 0; display: grid; place-items: center; margin: 0; pointer-events: none; }
+.matrix-plant { position: absolute; min-width: 0; padding: 4px 6px; touch-action: none; cursor: grab; user-select: none; display: flex; flex-direction: column; align-items: center; background: transparent; border: 0; }
+.matrix-plant .plant-wrap { width: 40px; height: 40px; flex: none; }
 .matrix-plant .plant-wrap svg { height: 100%; object-fit: contain; }
-.matrix-plant > span { width: 100%; min-height: 34px; font-size: 14px; line-height: 1.3; text-align: center; overflow-wrap: anywhere; }
-.matrix-plant.is-dragging { cursor: grabbing; z-index: 5; }
+.matrix-plant > span { width: 100%; height: 36px; flex: none; font-size: 14px; line-height: 18px; text-align: center; overflow-wrap: anywhere; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.matrix-plant.is-dragging { cursor: grabbing; z-index: 100; pointer-events: none; background: var(--bg); opacity: .9; }
 .matrix-plant:focus-visible { outline: 1px dashed var(--accent); outline-offset: 3px; }
 .storage-note { font-size: 14px; color: var(--dim); margin-top: 10px; }
 @media (max-width: 600px) {
